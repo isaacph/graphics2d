@@ -1,0 +1,73 @@
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[package]
+name = "graphics2d"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "0.13"
+winit = "0.26"
+env_logger = "0.9"
+log = "0.4"
+pollster = "0.2"
+bytemuck = { version = "1.4", features = [ "derive" ] }
+anyhow = "1.0"
+cgmath = { version = "0.18", features = [ "serde" ] }
+instant = "0.1"
+# freetype-sys = { version = "0.15.0" }
+fontdue = "0.7.2"
+itertools = "0.10.5"
+clipboard = "0.5.0"
+serde = { version = "1.0.137", features = [ "derive" ] }
+bincode = "1.3.3"
+include_dir = "0.7.3"
+strum = "0.24.0"
+strum_macros = "0.24.0"
+
+# webassembly dependency
+cfg-if = "1"
+
+[dependencies.image]
+version = "0.24"
+default-features = false
+features = ["png", "jpeg"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+client = []
+server = []
+
+
+
+# webassembly dependency
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+console_log = "0.2.0"
+wgpu = { version = "0.13", features = ["webgl"]}
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4.30"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Window",
+    "Element",
+]}
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+debug = false
+
+[[client]]
+name = "client"
+required-features = ["client"]
+
+[[server]]
+name = "server"
+required-features = ["server"]
+
