@@ -1,7 +1,9 @@
 use cgmath::{Vector4, Vector2};
+use clipboard::{ClipboardContext, ClipboardProvider};
 use itertools::Itertools;
+use winit::{event::{WindowEvent, KeyboardInput, ElementState, VirtualKeyCode, MouseScrollDelta}, dpi::PhysicalPosition};
 
-use crate::{graphics::{text::{FontMetricsInfo, FontInfoContainer}, textured}, util::clampi};
+use crate::{graphics::{text::{FontMetricsInfo, FontInfoContainer, BaseFontInfoContainer}, textured}, util::clampi};
 
 pub struct Chatbox {
     font_info: FontMetricsInfo,
@@ -16,8 +18,11 @@ pub struct Chatbox {
     flicker_timer: f32,
     typing_flicker: bool,
     fade_timer: f32,
-    scroll: i32,
+    scroll: i32, // a number from 0 to max_scroll for the scroll value
     max_scroll: i32, // cache the maximum we calculated you could scroll
+    scroll_float: f32, // the extra partial scroll value from scrolling that is not aligned
+    pub scroll_speed: f32,
+    clipboard: ClipboardContext,
 }
 
 pub const BAR_FLICKER_TIME: f32 = 0.6;
@@ -42,6 +47,9 @@ impl Chatbox {
             fade_timer: f32::MAX,
             scroll: 0,
             max_scroll: 0,
+            scroll_float: 0.0,
+            scroll_speed: 1.0,
+            clipboard: ClipboardProvider::new().unwrap(),
         }
     }
 
@@ -56,7 +64,8 @@ impl Chatbox {
     }
 
     pub fn set_scroll(&mut self, scroll: i32) {
-        self.scroll = scroll;
+        self.scroll = i32::min(i32::max(0, scroll), self.max_scroll);
+        self.scroll_float = 0.0;
         self.regen_split();
     }
     pub fn max_scroll(&self) -> i32 {
@@ -72,6 +81,11 @@ impl Chatbox {
     }
 
     fn regen_split(&mut self) {
+        // resolve scrolling
+        let line_change = f32::round(self.scroll_float * self.scroll_speed) as i32;
+        self.scroll_float -= line_change as f32 / self.scroll_speed;
+        self.scroll = i32::min(self.max_scroll, i32::max(0, self.scroll + line_change));
+
         let wrap = self.font_info.split_lines(&self.history.join("\n"), Some(self.width)).collect_vec();
         let pos = wrap.len() as i32 - self.visible_lines - self.scroll as i32;
         let pos = clampi(pos, 0, clampi(wrap.len() as i32 - self.visible_lines, 0, wrap.len() as i32));
@@ -190,5 +204,131 @@ impl Chatbox {
             instances.push((typing_line, pos, color));
         }
         (background_instance, instances)
+    }
+
+    pub fn focus(&mut self) {
+        self.set_typing_flicker(true);
+        self.set_scroll(0);
+    }
+
+    pub fn unfocus(&mut self) {
+        self.set_typing_flicker(false);
+    }
+
+    pub fn process_scroll(&mut self, scroll_y: f32) {
+        self.scroll_float += scroll_y;
+        self.regen_split();
+    }
+
+    pub fn receive_focused_event(&mut self, event: &WindowEvent) -> ReceiveResult {
+        match *event {
+            WindowEvent::KeyboardInput {
+                input: KeyboardInput {
+                    state: ElementState::Pressed,
+                    virtual_keycode: Some(key),
+                    modifiers, // the alternative doesn't even work on the web atm so we're
+                               // using this version despite deprecation
+                    ..
+                },
+                ..
+            } => {
+                match key {
+                    VirtualKeyCode::Escape => {
+                        self.set_typing_flicker(false);
+                        return ReceiveResult::Relinquish;
+                    },
+                    VirtualKeyCode::Return => {
+                        if self.get_typing().is_empty() {
+                            self.set_typing_flicker(false);
+                            return ReceiveResult::Relinquish;
+                        } else {
+                            let typing = self.get_typing().clone();
+                            // self.chatbox.println(&typing);
+                            self.erase_typing();
+                            return ReceiveResult::Command(typing);
+                        }
+                    },
+                    VirtualKeyCode::V => {
+                        if modifiers.ctrl() {
+                            // CTRL+V
+                            let res = self.clipboard.get_contents();
+                            if let Ok(clipboard) = res {
+                                self.add_typing_lines(&clipboard);
+                            }
+                            else if let Err(err) = res {
+                                self.println(&("Error pasting: ".to_string() + &err.to_string()));
+                            }
+                            return ReceiveResult::Consumed;
+                        }
+                    },
+                    _ => ()
+                }
+                return ReceiveResult::Consumed;
+            },
+            WindowEvent::ReceivedCharacter(c) => {
+                if c == '\x08' { // backspace
+                    self.remove_typing(1);
+                    return ReceiveResult::Consumed;
+                } else if !self.font_info.is_char_valid(&c) {
+                    // ignore invalid characters
+                    // this includes keycodes generated from like Ctrl + V
+                } else {
+                    self.add_typing(c);
+                    return ReceiveResult::Consumed;
+                }
+            },
+            // grab mouse wheel events
+            WindowEvent::MouseWheel {
+                delta,
+                phase: _,
+                ..
+            } => {
+                let (_dx, dy) = match delta {
+                    MouseScrollDelta::LineDelta(dx, dy) => {
+                        // we're just assuming a "line" is about 32 px
+                        (dx as f32 * 32.0, dy as f32 * 32.0)
+                    },
+                    MouseScrollDelta::PixelDelta(PhysicalPosition {x: dx, y: dy}) => {
+                        (dx as f32, dy as f32)
+                    },
+                };
+                // response to mouse wheel input
+                // this just scrolls the chat
+                self.process_scroll(dy);
+                return ReceiveResult::Consumed;
+            },
+            _ => ()
+        };
+        return ReceiveResult::Ignored;
+    }
+}
+
+pub enum ReceiveResult {
+    Ignored,
+    Consumed,
+    Relinquish,
+    Command(String),
+}
+
+impl ReceiveResult {
+    pub fn consumed(&self) -> bool {
+        match self {
+            Self::Consumed => true,
+            Self::Relinquish => true,
+            Self::Command(_) => true,
+            _ => false,
+        }
+    }
+    pub fn relinquished(&self) -> bool {
+        match self {
+            Self::Relinquish => true,
+            _ => false,
+        }
+    }
+    pub fn get_command(&self) -> Option<String> {
+        match self {
+            Self::Command(cmd) => Some(cmd.clone()),
+            _ => None,
+        }
     }
 }

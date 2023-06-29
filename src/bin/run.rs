@@ -1,14 +1,19 @@
 #![windows_subsystem = "windows"]
 use cgmath::vec2;
 use cgmath::{Vector2, Zero};
-use chatbox::Chatbox;
+use graphics2d::camera;
+use graphics2d::chatbox::Chatbox;
 use clipboard::{ClipboardContext, ClipboardProvider};
-use graphics::{RenderEngine, text::BaseFontInfoContainer};
+use graphics2d::graphics::text::{BaseFontInfoContainer, FontRenderer, make_font_infos, default_characters, Font};
+use graphics2d::graphics::texture::Texture;
+use graphics2d::graphics::textured::TextureRenderer;
+use include_dir::Dir;
 use instant::Instant;
 use itertools::Itertools;
-use window::{Resources, StateTrait};
+use graphics2d::window::{Resources, StateTrait, self};
 use winit::dpi::PhysicalPosition;
 use std::collections::HashSet;
+use std::path::Path;
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -101,7 +106,7 @@ impl State {
         // let _minion = world.instantiate(caster_minion(), char_id_gen.generate(), vec3(1.0, 0.0, 0.0)).unwrap();
         // let _minion2 = world.instantiate(caster_minion(), char_id_gen.generate(), vec3(1.5, 1.0, 0.0)).unwrap();
 
-        let mut state = Self {
+        let state = Self {
             render_engine,
             camera,
             camera_controller,
@@ -137,93 +142,16 @@ impl StateTrait for State {
     fn input(&mut self, _window: &Window, _resources: &mut Resources, event: &WindowEvent) -> bool {
         // overrides from chatbox mode
         if self.focus_mode == FocusMode::Chatbox {
-            match *event {
-                WindowEvent::KeyboardInput {
-                    input: KeyboardInput {
-                        state: ElementState::Pressed,
-                        virtual_keycode: Some(key),
-                        modifiers, // the alternative doesn't even work on the web atm so we're
-                                   // using this version despite deprecation
-                        ..
-                    },
-                    ..
-                } => {
-                    match key {
-                        VirtualKeyCode::Escape => {
-                            self.focus_mode = FocusMode::Default;
-                            self.chatbox.set_typing_flicker(false);
-                        },
-                        VirtualKeyCode::Return => {
-                            if self.chatbox.get_typing().is_empty() {
-                                self.focus_mode = FocusMode::Default;
-                                self.chatbox.set_typing_flicker(false);
-                            } else {
-                                let typing = self.chatbox.get_typing().clone();
-                                // self.chatbox.println(&typing);
-                                self.chatbox.erase_typing();
-                                self.input_state.commands.push(typing);
-                            }
-                        },
-                        VirtualKeyCode::V => {
-                            if modifiers.ctrl() {
-                                // CTRL+V
-                                let res = self.clipboard.get_contents();
-                                if let Ok(clipboard) = res {
-                                    self.chatbox.add_typing_lines(&clipboard);
-                                }
-                                else if let Err(err) = res {
-                                    self.chatbox.println(&("Error pasting: ".to_string() + &err.to_string()));
-                                }
-                            }
-                        },
-                        _ => {
-                        }
-                    }
-                    return true
-                },
-                WindowEvent::ReceivedCharacter(c) => {
-                    if c == '\x08' { // backspace
-                        self.chatbox.remove_typing(1);
-                        return true
-                    } else if !self.render_engine.font.is_char_valid(&c) {
-                        // ignore invalid characters
-                        // this includes keycodes generated from like Ctrl + V
-                    } else {
-                        self.chatbox.add_typing(c);
-                        return true
-                    }
-                },
-                // grab mouse wheel events
-                WindowEvent::MouseWheel {
-                    delta,
-                    phase: _,
-                    ..
-                } => {
-                    let (dx, dy) = match delta {
-                        MouseScrollDelta::LineDelta(dx, dy) => {
-                            // we're just assuming a "line" is about 32 px
-                            (dx as f32 * 32.0, dy as f32 * 32.0)
-                        },
-                        MouseScrollDelta::PixelDelta(PhysicalPosition {x: dx, y: dy}) => {
-                            (dx as f32, dy as f32)
-                        },
-                    };
-                    self.input_state.mouse_wheel += Vector2::new(dx, dy);
-                    // response to mouse wheel input
-                    // this just scrolls the chat
-                    let scroll_y = self.input_state.mouse_wheel.y;
-                    let scroll_approx = ((scroll_y - self.chatbox_scroll) / self.chatbox.line_height()) as i32;
-                    self.chatbox.set_scroll(scroll_approx);
-                    if scroll_approx < 0 {
-                        self.chatbox_scroll = scroll_y;
-                    } else if scroll_approx > self.chatbox.max_scroll() as i32 {
-                        self.chatbox_scroll = scroll_y
-                            - self.chatbox.line_height() * self.chatbox.max_scroll() as f32;
-                    }
-                    return true
-                },
-                _ => ()
-            };
+            let result = self.chatbox.receive_focused_event(event);
+            if result.relinquished() {
+                self.focus_mode = FocusMode::Default;
+            }
+            if let Some(cmd) = result.get_command() {
+                self.input_state.commands.push(cmd);
+            }
+            if result.consumed() {
+                return true;
+            }
         }
         // regular mode
         // only two inputs that are actually capable of changing the model are S and F
@@ -244,6 +172,7 @@ impl StateTrait for State {
                 } => match key {
                     VirtualKeyCode::Return => if state == ElementState::Pressed {
                         self.focus_mode = FocusMode::Chatbox;
+                        self.chatbox.focus();
                         self.chatbox.set_typing_flicker(true);
                         self.chatbox_scroll = self.input_state.mouse_wheel.y;
                         self.chatbox.set_scroll(0);
@@ -305,6 +234,18 @@ impl StateTrait for State {
                 ["echo", _, ..] => {
                     self.chatbox.println(&command[split[0].len()+1..]);
                 },
+                ["scrollspeed", speed_str] => {
+                    let speed_res = speed_str.parse();
+                    match speed_res {
+                        Ok(speed) => {
+                            self.chatbox.scroll_speed = speed;
+                            self.chatbox.println(format!("Set scroll speed to {}", speed).as_str());
+                        },
+                        Err(err) => {
+                            return Err(err.to_string());
+                        },
+                    }
+                },
                 _ => self.chatbox.println("Unknown command or incorrect arguments"),
             }
             Ok(false)
@@ -342,5 +283,130 @@ impl StateTrait for State {
     }
 
     fn close(&mut self, _window: &Window, _resources: &mut Resources) {
+    }
+}
+
+static RESOURCES: Dir<'_> = include_dir::include_dir!("res");
+
+pub fn load_bytes(res_path: &str) -> Option<&[u8]> {
+    RESOURCES.get_file(Path::new(res_path)).map(|file| file.contents())
+}
+
+pub struct RenderEngine {
+    pub texture_renderer: TextureRenderer,
+    pub ui_texture_renderer: TextureRenderer,
+    pub font_renderer: FontRenderer,
+    pub font: Font,
+    pub small_font: Font,
+    pub solid_texture: Texture,
+}
+
+impl RenderEngine {
+    pub fn init(device: &wgpu::Device, queue: &wgpu::Queue, config: &wgpu::SurfaceConfiguration) -> RenderEngine {
+        let mut texture_renderer = TextureRenderer::init(device, queue, config);
+        let mut ui_texture_renderer = TextureRenderer::init(device, queue, config);
+        let mut font_renderer = FontRenderer::new(device, queue, config).unwrap();
+
+        // println!("{}", RESOURCES.files().map(|file| file.path().to_str()).flatten().join("\n"));
+        let font_info = make_font_infos(
+            load_bytes("NotoSerifJP-Regular.otf").unwrap(),
+            &[24.0, 48.0],
+            default_characters().iter(),
+            Some(&'\u{25A1}'),
+            "NotoSerifJP-Regular.otf".to_string()).unwrap();
+        let mut fonts = font_info.into_iter().map(|info|
+            Font::make_from_info(device, queue, &info, wgpu::FilterMode::Linear).unwrap()
+        ).collect_vec();
+        let font = fonts.pop().unwrap();
+        let small_font = fonts.pop().unwrap();
+        font_renderer.register_font(device, &font);
+        font_renderer.register_font(device, &small_font);
+
+        let solid_texture = Texture::blank_texture(device, queue, "blank").unwrap();
+        ui_texture_renderer.add_texture(device, [&solid_texture].into_iter());
+        texture_renderer.add_texture(device, [&solid_texture].into_iter());
+
+        // let wiz_walk_textures = (1..=12).map(|i|
+        //     Self::load_image(device, queue,
+        //         load_bytes(format!("walk_256/Layer {}.png", i).as_str()).unwrap())
+        //     ).collect_vec();
+        // texture_renderer.add_texture(device, wiz_walk_textures.iter());
+
+        Self {
+            texture_renderer,
+            font_renderer,
+            ui_texture_renderer,
+            font,
+            small_font,
+            solid_texture,
+        }
+    }
+
+    pub fn render(state: &mut State, resources: &mut Resources) -> Result<(), wgpu::SurfaceError> {
+        let engine = &mut state.render_engine;
+        let output = resources.surface.get_current_texture()?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(
+                                wgpu::Color {
+                                    r: 0.0,
+                                    g: 0.0,
+                                    b: 0.0,
+                                    a: 1.0,
+                                }
+                            ),
+                            store: true,
+                        },
+                    })
+                ],
+                depth_stencil_attachment: None,
+            });
+            engine.texture_renderer.reset();
+            engine.font_renderer.reset();
+            engine.ui_texture_renderer.reset();
+
+            let ui_camera = state.camera.get_ui_camera();
+
+            // engine.texture_renderer.render(&mut resources.queue, &mut render_pass, &state.camera, world_draw).unwrap();
+            // engine.font_renderer.render(&engine.small_font, &resources.queue, &mut render_pass, &ui_camera, &names).unwrap();
+
+            // render ui
+            let (background_instance, chatbox_text_instances) =
+                state.chatbox.render();
+            engine.ui_texture_renderer.render(
+                &mut resources.queue,
+                &mut render_pass,
+                &ui_camera,
+                vec![
+                    (vec![background_instance], &engine.solid_texture)
+                ]
+            )?;
+            // render chatbox
+            engine.font_renderer.render(
+                &engine.font,
+                &resources.queue,
+                &mut render_pass,
+                &ui_camera,
+                &chatbox_text_instances
+            )?;
+        }
+
+        // submit will accept anything that implements IntoIter
+        resources.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        Ok(())
     }
 }

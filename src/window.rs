@@ -1,4 +1,4 @@
-use crate::EventLoop;
+use winit::event_loop::EventLoop;
 use std::rc::Rc;
 
 use winit::{
