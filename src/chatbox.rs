@@ -48,7 +48,7 @@ impl Chatbox {
             scroll: 0,
             max_scroll: 0,
             scroll_float: 0.0,
-            scroll_speed: 1.0,
+            scroll_speed: 0.05,
             clipboard: ClipboardProvider::new().unwrap(),
         }
     }
