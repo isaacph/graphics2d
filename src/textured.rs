@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use cgmath::SquareMatrix;
 use wgpu::util::DeviceExt;
 
-use crate::{camera::CameraObj, graphics::texture::Texture};
+use crate::{camera::CameraObj, texture::Texture};
 
 const INSTANCE_BUFFERS: u32 = 128;
 const INSTANCE_BUFFER_DEFAULT: [InstanceRaw; 16] = [InstanceRaw { model: [[0.0; 4]; 4], color: [0.0; 4] }; 16];

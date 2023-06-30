@@ -3,7 +3,7 @@ use clipboard::{ClipboardContext, ClipboardProvider};
 use itertools::Itertools;
 use winit::{event::{WindowEvent, KeyboardInput, ElementState, VirtualKeyCode, MouseScrollDelta}, dpi::PhysicalPosition};
 
-use crate::{graphics::{text::{FontMetricsInfo, FontInfoContainer, BaseFontInfoContainer}, textured}, util::clampi};
+use crate::{text::{FontMetricsInfo, FontInfoContainer, BaseFontInfoContainer}, textured, util::clampi};
 
 pub struct Chatbox {
     font_info: FontMetricsInfo,

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::{collections::HashMap, cell::Cell};
 use crate::{camera::CameraObj, util::WordSpaceIterable};
 use crate::util::{PartialOrdMinMax, WordSpaceIterator};
-use crate::graphics::texture::Texture;
+use crate::texture::Texture;
 
 use self::packing::{GlyphPacking, GlyphInfo};
 use cgmath::{Matrix4, Vector2, SquareMatrix};
