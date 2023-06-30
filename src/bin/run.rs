@@ -11,13 +11,9 @@ use include_dir::Dir;
 use instant::Instant;
 use itertools::Itertools;
 use graphics2d::window::{Resources, StateTrait, self};
-use winit::dpi::PhysicalPosition;
 use std::collections::HashSet;
 use std::path::Path;
-use winit::{
-    event::*,
-    event_loop::EventLoop,
-};
+use winit::event::*;
 use winit::window::Window;
 
 // how to start from local program
@@ -62,7 +58,6 @@ pub struct State {
     pub mouse_pos_view: Vector2<f32>,
 
     pub chatbox: Chatbox,
-    pub chatbox_scroll: f32,
     pub focus_mode: FocusMode,
     pub game_state: GameState,
 }
@@ -71,7 +66,9 @@ pub struct InputState {
     pub key_down: HashSet<VirtualKeyCode>,
     pub key_pos_edge: HashSet<VirtualKeyCode>,
     pub key_neg_edge: HashSet<VirtualKeyCode>,
+    pub mouse_down: HashSet<MouseButton>,
     pub mouse_pos_edge: HashSet<MouseButton>,
+    pub mouse_neg_edge: HashSet<MouseButton>,
     pub mouse_position: Vector2<f32>,
     pub commands: Vec<String>,
     pub edit: bool,
@@ -80,31 +77,11 @@ pub struct InputState {
 
 impl State {
     pub fn init(resources: &mut Resources) -> Box<dyn StateTrait> {
-        // // load a texture - happy tree
-        // let diffuse_bytes = include_bytes!("happy-tree.png");
-        // let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
-        // let diffuse_texture =
-        //     texture::Texture::from_image(&device, &queue, &diffuse_image, "happy-tree").unwrap();
-
-        // // load a texture - keyboard
-        // let diffuse_bytes_2 = include_bytes!("keyboard.jpg");
-        // let diffuse_image_2 = image::load_from_memory(diffuse_bytes_2).unwrap();
-        // let diffuse_texture_2 =
-        //     texture::Texture::from_image(&device, &queue, &diffuse_image_2, "keyboard").unwrap();
-
-        // camera
         let camera = camera::Camera::new(cgmath::Vector2::new(resources.size.width, resources.size.height), DEFAULT_ZOOM);
         let camera_controller = camera::CameraController::new(1.0);
 
         let render_engine = RenderEngine::init(&resources.device, &resources.queue, &resources.config);
         let chatbox = Chatbox::new(render_engine.font.get_metrics_info(), 42.0, 40);
-
-        // create example characters to display
-        // let mut char_id_gen = CharacterIDGenerator::new();
-        // let proj_id_gen = ProjectileIDGenerator::new();
-        // let player_id = Some(world.instantiate(ice_wiz(), char_id_gen.generate(), vec3(0.0, 0.0, 0.0)).unwrap());
-        // let _minion = world.instantiate(caster_minion(), char_id_gen.generate(), vec3(1.0, 0.0, 0.0)).unwrap();
-        // let _minion2 = world.instantiate(caster_minion(), char_id_gen.generate(), vec3(1.5, 1.0, 0.0)).unwrap();
 
         let state = Self {
             render_engine,
@@ -115,7 +92,9 @@ impl State {
                 key_down: HashSet::new(),
                 key_pos_edge: HashSet::new(),
                 key_neg_edge: HashSet::new(),
+                mouse_down: HashSet::new(),
                 mouse_pos_edge: HashSet::new(),
+                mouse_neg_edge: HashSet::new(),
                 mouse_position: Vector2::zero(),
                 commands: vec![],
                 edit: true,
@@ -123,7 +102,6 @@ impl State {
             },
             mouse_pos_view: Vector2::zero(),
             chatbox,
-            chatbox_scroll: 0.0,
             focus_mode: FocusMode::Default,
             game_state: GameState::Game,
             clipboard: ClipboardProvider::new().unwrap(),
@@ -142,7 +120,7 @@ impl StateTrait for State {
     fn input(&mut self, _window: &Window, _resources: &mut Resources, event: &WindowEvent) -> bool {
         // overrides from chatbox mode
         if self.focus_mode == FocusMode::Chatbox {
-            let result = self.chatbox.receive_focused_event(event);
+            let result = self.chatbox.receive_focused_event(event, &mut self.clipboard);
             if result.relinquished() {
                 self.focus_mode = FocusMode::Default;
             }
@@ -152,67 +130,74 @@ impl StateTrait for State {
             if result.consumed() {
                 return true;
             }
-        }
-        // regular mode
-        // only two inputs that are actually capable of changing the model are S and F
-        let relevant_inputs = {
-            use VirtualKeyCode::*;
-            vec![S, F]
-        };
-        if !self.camera_controller.process_events(event) {
-            match *event {
-                WindowEvent::KeyboardInput {
-                    input: KeyboardInput {
-                        state,
-                        virtual_keycode:
-                        Some(key),
+        } else if self.focus_mode == FocusMode::Default {
+            // regular mode
+            // only two inputs that are actually capable of changing the model are S and F
+            let relevant_inputs = {
+                use VirtualKeyCode::*;
+                vec![S, F]
+            };
+            if !self.camera_controller.process_events(event) {
+                match *event {
+                    WindowEvent::KeyboardInput {
+                        input: KeyboardInput {
+                            state,
+                            virtual_keycode:
+                            Some(key),
+                            ..
+                        },
                         ..
+                    } => match key {
+                        VirtualKeyCode::Return => if state == ElementState::Pressed {
+                            self.focus_mode = FocusMode::Chatbox;
+                            self.chatbox.focus();
+                            return true
+                        } else { return true },
+                        _ => {
+                            if relevant_inputs.contains(&key) {
+                                match state {
+                                    ElementState::Pressed => {
+                                        self.input_state.key_down.insert(key);
+                                        self.input_state.key_pos_edge.insert(key);
+                                    },
+                                    ElementState::Released => {
+                                        self.input_state.key_down.remove(&key);
+                                        self.input_state.key_neg_edge.insert(key);
+                                    },
+                                };
+                                return true
+                            }
+                        }
                     },
-                    ..
-                } => match key {
-                    VirtualKeyCode::Return => if state == ElementState::Pressed {
-                        self.focus_mode = FocusMode::Chatbox;
-                        self.chatbox.focus();
-                        self.chatbox.set_typing_flicker(true);
-                        self.chatbox_scroll = self.input_state.mouse_wheel.y;
-                        self.chatbox.set_scroll(0);
-                        true
-                    } else { true },
-                    _ => {
-                        if relevant_inputs.contains(&key) {
-                            match state {
-                                ElementState::Pressed => {
-                                    self.input_state.key_down.insert(key);
-                                    self.input_state.key_pos_edge.insert(key);
-                                },
-                                ElementState::Released => {
-                                    self.input_state.key_down.remove(&key);
-                                    self.input_state.key_neg_edge.insert(key);
-                                },
-                            };
-                            true
-                        } else { false }
-                    }
-                },
-                WindowEvent::CursorMoved { position, .. } => {
-                    let position = vec2(position.x as f32, position.y as f32);
-                    self.mouse_pos_view = position;
-                    self.input_state.mouse_position = self.camera.view_to_world_pos(position);
-                    true
-                },
-                WindowEvent::MouseInput {
-                    state: ElementState::Pressed,
-                    button,
-                    ..
-                } => {
-                    self.input_state.mouse_pos_edge.insert(button);
-                    true
-                },
-                _ => false,
+                    WindowEvent::CursorMoved { position, .. } => {
+                        let position = vec2(position.x as f32, position.y as f32);
+                        self.mouse_pos_view = position;
+                        self.input_state.mouse_position = self.camera.view_to_world_pos(position);
+                        return true
+                    },
+                    WindowEvent::MouseInput {
+                        state,
+                        button,
+                        ..
+                    } => match state {
+                        ElementState::Pressed => {
+                            self.input_state.mouse_pos_edge.insert(button);
+                            self.input_state.mouse_down.insert(button);
+                            return true
+                        },
+                        ElementState::Released => {
+                            self.input_state.mouse_neg_edge.insert(button);
+                            self.input_state.mouse_down.remove(&button);
+                            return true
+                        },
+                    },
+                    _ => (),
+                };
+            } else {
+                return true
             }
-        } else {
-            true
         }
+        return false
     }
 
     fn update(&mut self, _window: &Window, _resources: &mut Resources) -> bool {
@@ -221,7 +206,7 @@ impl StateTrait for State {
         let delta_time = ((frame - self.last_frame).as_nanos() as f64 / 1000000000.0) as f32;
         self.last_frame = frame;
 
-        // input
+        // commands
         if self.input_state.commands.iter().map(|command| {
             let split = &command.split(' ').collect::<Vec<_>>()[..];
             match split {
@@ -257,24 +242,16 @@ impl StateTrait for State {
         self.input_state.commands.clear();
 
         // camera update
-        // let mut player_position = None;
-        // if let Some(player_id) = self.player_id {
-        //     if let Some(player_cid) = self.player_data.get_player(&player_id).unwrap().selected_char {
-        //         if let Some(ch) = self.world.characters.get(&player_cid) {
-        //             if let Some(props) = self.world.char_props.get(&player_cid) {
-        //                 player_position = Some(ch.position - props.center_offset);
-        //             }
-        //         }
-        //     }
-        // }
-        // self.camera_controller.update_camera(delta_time, &mut self.camera, player_position.as_ref());
+        self.camera_controller.update_camera(delta_time, &mut self.camera);
 
+        // chatbox update
         self.chatbox.update(delta_time);
         
-        // clear inputs
+        // clear inputs after we've read them
         self.input_state.key_pos_edge.clear();
         self.input_state.key_neg_edge.clear();
         self.input_state.mouse_pos_edge.clear();
+        self.input_state.mouse_neg_edge.clear();
         false
     }
 

@@ -22,7 +22,6 @@ pub struct Chatbox {
     max_scroll: i32, // cache the maximum we calculated you could scroll
     scroll_float: f32, // the extra partial scroll value from scrolling that is not aligned
     pub scroll_speed: f32,
-    clipboard: ClipboardContext,
 }
 
 pub const BAR_FLICKER_TIME: f32 = 0.6;
@@ -49,7 +48,6 @@ impl Chatbox {
             max_scroll: 0,
             scroll_float: 0.0,
             scroll_speed: 0.05,
-            clipboard: ClipboardProvider::new().unwrap(),
         }
     }
 
@@ -220,7 +218,7 @@ impl Chatbox {
         self.regen_split();
     }
 
-    pub fn receive_focused_event(&mut self, event: &WindowEvent) -> ReceiveResult {
+    pub fn receive_focused_event(&mut self, event: &WindowEvent, clipboard: &mut ClipboardContext) -> ReceiveResult {
         match *event {
             WindowEvent::KeyboardInput {
                 input: KeyboardInput {
@@ -251,7 +249,7 @@ impl Chatbox {
                     VirtualKeyCode::V => {
                         if modifiers.ctrl() {
                             // CTRL+V
-                            let res = self.clipboard.get_contents();
+                            let res = clipboard.get_contents();
                             if let Ok(clipboard) = res {
                                 self.add_typing_lines(&clipboard);
                             }

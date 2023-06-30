@@ -147,7 +147,7 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&self, delta_time: f32, camera: &mut Camera, center: Option<&Vector3<f32>>) {
+    pub fn update_camera(&self, delta_time: f32, camera: &mut Camera) {
         use cgmath::InnerSpace;
         use VirtualKeyCode::{W, A, S, D};
 
@@ -163,12 +163,12 @@ impl CameraController {
                 camera.center += change;
             }
         } else {
-            if let Some(pos) = center {
-                use cgmath::vec2;
-                camera.center = vec2(pos.x, pos.y + pos.z);
-            } else {
-                // we can't really lock to nothing
-            }
+            // if let Some(pos) = center {
+            //     use cgmath::vec2;
+            //     camera.center = vec2(pos.x, pos.y + pos.z);
+            // } else {
+            //     // we can't really lock to nothing
+            // }
         }
     }
 }
