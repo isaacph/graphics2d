@@ -1,7 +1,7 @@
 use cgmath::{Vector4, Vector2};
 use clipboard::{ClipboardContext, ClipboardProvider};
 use itertools::Itertools;
-use winit::{event::{WindowEvent, KeyboardInput, ElementState, VirtualKeyCode, MouseScrollDelta}, dpi::PhysicalPosition};
+use winit::{event::{WindowEvent, ElementState, MouseScrollDelta, KeyEvent, Modifiers}, dpi::PhysicalPosition, keyboard::{PhysicalKey, KeyCode, ModifiersKeyState}};
 
 use crate::{text::{FontMetricsInfo, FontInfoContainer, BaseFontInfoContainer}, textured, util::clampi};
 
@@ -218,24 +218,22 @@ impl Chatbox {
         self.regen_split();
     }
 
-    pub fn receive_focused_event(&mut self, event: &WindowEvent, clipboard: &mut ClipboardContext) -> ReceiveResult {
-        match *event {
+    pub fn receive_focused_event(&mut self, event: &WindowEvent, modifiers: &Modifiers) -> ReceiveResult {
+        match event {
             WindowEvent::KeyboardInput {
-                input: KeyboardInput {
+                event: KeyEvent {
+                    physical_key: PhysicalKey::Code(key),
                     state: ElementState::Pressed,
-                    virtual_keycode: Some(key),
-                    modifiers, // the alternative doesn't even work on the web atm so we're
-                               // using this version despite deprecation
+                    text: str,
                     ..
-                },
-                ..
+                }, ..
             } => {
                 match key {
-                    VirtualKeyCode::Escape => {
+                    KeyCode::Escape => {
                         self.set_typing_flicker(false);
                         return ReceiveResult::Relinquish;
                     },
-                    VirtualKeyCode::Return => {
+                    KeyCode::Enter => {
                         if self.get_typing().is_empty() {
                             self.set_typing_flicker(false);
                             return ReceiveResult::Relinquish;
@@ -246,34 +244,42 @@ impl Chatbox {
                             return ReceiveResult::Command(typing);
                         }
                     },
-                    VirtualKeyCode::V => {
-                        if modifiers.ctrl() {
+                    KeyCode::KeyV => {
+                        if modifiers.lcontrol_state() == ModifiersKeyState::Pressed {
                             // CTRL+V
-                            let res = clipboard.get_contents();
-                            if let Ok(clipboard) = res {
-                                self.add_typing_lines(&clipboard);
-                            }
-                            else if let Err(err) = res {
-                                self.println(&("Error pasting: ".to_string() + &err.to_string()));
-                            }
+                            // let res = clipboard.get_contents();
+                            // if let Ok(clipboard) = res {
+                            //     self.add_typing_lines(&clipboard);
+                            // }
+                            // else if let Err(err) = res {
+                                self.println(&("Error pasting: pasting no longer implemented".to_string()));
+                            // }
                             return ReceiveResult::Consumed;
                         }
+                        // don't consume
                     },
-                    _ => ()
+                    KeyCode::Backspace => {
+                        self.remove_typing(1);
+                        return ReceiveResult::Consumed;
+                    },
+                    _ => (),
+                };
+                // add plaintext (only valid characters)
+                if let Some(text) = str {
+                    let mut added = 0;
+                    for c in text.chars() {
+                        if self.font_info.is_char_valid(&c) {
+                            self.add_typing(c);
+                            added += 1;
+                        }
+                    }
+                    if added > 0 {
+                        return ReceiveResult::Consumed;
+                    }
                 }
+
+                // for now we just consume all keyboard inputs anyways
                 return ReceiveResult::Consumed;
-            },
-            WindowEvent::ReceivedCharacter(c) => {
-                if c == '\x08' { // backspace
-                    self.remove_typing(1);
-                    return ReceiveResult::Consumed;
-                } else if !self.font_info.is_char_valid(&c) {
-                    // ignore invalid characters
-                    // this includes keycodes generated from like Ctrl + V
-                } else {
-                    self.add_typing(c);
-                    return ReceiveResult::Consumed;
-                }
             },
             // grab mouse wheel events
             WindowEvent::MouseWheel {
@@ -284,10 +290,10 @@ impl Chatbox {
                 let (_dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(dx, dy) => {
                         // we're just assuming a "line" is about 32 px
-                        (dx as f32 * 32.0, dy as f32 * 32.0)
+                        (*dx as f32 * 32.0, *dy as f32 * 32.0)
                     },
                     MouseScrollDelta::PixelDelta(PhysicalPosition {x: dx, y: dy}) => {
-                        (dx as f32, dy as f32)
+                        (*dx as f32, *dy as f32)
                     },
                 };
                 // response to mouse wheel input

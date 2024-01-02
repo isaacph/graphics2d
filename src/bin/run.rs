@@ -1,20 +1,22 @@
 #![windows_subsystem = "windows"]
 use cgmath::vec2;
 use cgmath::{Vector2, Zero};
-use graphics2d::camera;
-use graphics2d::chatbox::Chatbox;
+use graphics::camera;
+use graphics::chatbox::Chatbox;
 use clipboard::{ClipboardContext, ClipboardProvider};
-use graphics2d::text::{BaseFontInfoContainer, FontRenderer, make_font_infos, default_characters, Font};
-use graphics2d::texture::Texture;
-use graphics2d::textured::TextureRenderer;
+use graphics::text::{BaseFontInfoContainer, FontRenderer, make_font_infos, default_characters, Font};
+use graphics::texture::Texture;
+use graphics::textured::TextureRenderer;
 use include_dir::Dir;
 use instant::Instant;
 use itertools::Itertools;
-use graphics2d::window::{Resources, StateTrait, self};
+use graphics::window::{Resources, StateTrait, self};
+use wgpu::StoreOp;
 use std::collections::HashSet;
 use std::path::Path;
 use winit::event::*;
 use winit::window::Window;
+use winit::keyboard::{PhysicalKey, KeyCode};
 
 // how to start from local program
 fn main() {
@@ -52,7 +54,7 @@ pub struct State {
 
     last_frame: Instant,
 
-    clipboard: ClipboardContext,
+    // clipboard: ClipboardContext,
 
     pub input_state: InputState,
     pub mouse_pos_view: Vector2<f32>,
@@ -63,9 +65,9 @@ pub struct State {
 }
 
 pub struct InputState {
-    pub key_down: HashSet<VirtualKeyCode>,
-    pub key_pos_edge: HashSet<VirtualKeyCode>,
-    pub key_neg_edge: HashSet<VirtualKeyCode>,
+    pub key_down: HashSet<KeyCode>,
+    pub key_pos_edge: HashSet<KeyCode>,
+    pub key_neg_edge: HashSet<KeyCode>,
     pub mouse_down: HashSet<MouseButton>,
     pub mouse_pos_edge: HashSet<MouseButton>,
     pub mouse_neg_edge: HashSet<MouseButton>,
@@ -104,7 +106,6 @@ impl State {
             chatbox,
             focus_mode: FocusMode::Default,
             game_state: GameState::Game,
-            clipboard: ClipboardProvider::new().unwrap(),
         };
         
         Box::new(state)
@@ -117,10 +118,10 @@ impl StateTrait for State {
         self.chatbox.resize(new_size.width as f32, (new_size.height as f32 * 1.0 / 3.0 / self.chatbox.line_height()) as i32)
     }
 
-    fn input(&mut self, _window: &Window, _resources: &mut Resources, event: &WindowEvent) -> bool {
+    fn input(&mut self, _window: &Window, resources: &mut Resources, event: &WindowEvent) -> bool {
         // overrides from chatbox mode
         if self.focus_mode == FocusMode::Chatbox {
-            let result = self.chatbox.receive_focused_event(event, &mut self.clipboard);
+            let result = self.chatbox.receive_focused_event(event, &resources.modifiers);
             if result.relinquished() {
                 self.focus_mode = FocusMode::Default;
             }
@@ -134,21 +135,19 @@ impl StateTrait for State {
             // regular mode
             // only two inputs that are actually capable of changing the model are S and F
             let relevant_inputs = {
-                use VirtualKeyCode::*;
-                vec![S, F]
+                use KeyCode::*;
+                vec![KeyS, KeyF]
             };
             if !self.camera_controller.process_events(event) {
                 match *event {
                     WindowEvent::KeyboardInput {
-                        input: KeyboardInput {
-                            state,
-                            virtual_keycode:
-                            Some(key),
-                            ..
+                        event: KeyEvent {
+                            physical_key: PhysicalKey::Code(key),
+                            state, ..
                         },
                         ..
                     } => match key {
-                        VirtualKeyCode::Return => if state == ElementState::Pressed {
+                        KeyCode::Enter => if state == ElementState::Pressed {
                             self.focus_mode = FocusMode::Chatbox;
                             self.chatbox.focus();
                             return true
@@ -344,11 +343,13 @@ impl RenderEngine {
                                     a: 1.0,
                                 }
                             ),
-                            store: true,
+                            store: StoreOp::Store,
                         },
                     })
                 ],
                 depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
             engine.texture_renderer.reset();
             engine.font_renderer.reset();

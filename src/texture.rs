@@ -62,6 +62,7 @@ impl Texture {
                 // TEXTURE_BINDING tells wgpu that we want to use this texture in shaders
                 // COPY_DST means that we want to copy data to this texture
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
             }
         );
         // load the texture into with the queue
@@ -78,8 +79,8 @@ impl Texture {
             // The layout of the texture
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: std::num::NonZeroU32::new(bytes_per_pixel * dimensions.0),
-                rows_per_image: std::num::NonZeroU32::new(dimensions.1),
+                bytes_per_row: Some(bytes_per_pixel * dimensions.0),
+                rows_per_image: Some(dimensions.1),
             },
             texture_size
         );

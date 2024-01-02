@@ -76,7 +76,8 @@ pub fn make_font_infos<'a, T>(bytes: &[u8], font_sizes: &[f32], char_codes: T, n
     let font_settings = fontdue::FontSettings {
         collection_index: 0,
         scale: *font_sizes.iter().partial_max()
-            .map_or_else(|| Err("Received NaN font size"), |x| Ok(x))?
+            .map_or_else(|| Err("Received NaN font size"), |x| Ok(x))?,
+        load_substitutions: true,
     };
     // println!("Loading font");
     let font = fontdue::Font::from_bytes(bytes, font_settings)?;

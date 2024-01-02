@@ -1,4 +1,6 @@
+use wgpu::InstanceFlags;
 use winit::event_loop::EventLoop;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use winit::{
@@ -25,7 +27,8 @@ pub async fn run_async<F>(create_state: F)
         }
     }
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
+    event_loop.set_control_flow(ControlFlow::Poll);
     let window = Rc::new(WindowBuilder::new().build(&event_loop).unwrap());
 
     #[cfg(target_arch = "wasm32")]
@@ -77,46 +80,42 @@ pub async fn run_async<F>(create_state: F)
 
     let mut context = Context::new(&window, create_state).await;
 
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(move |event, elwt| {
         match event {
             Event::WindowEvent {
                 ref event,
                 window_id,
-            } if window_id == window.id() => if !context.input(&window, event) { // UPDATED!
-                match event {
-                    WindowEvent::CloseRequested => {
-                        context.close(&window);
-                        *control_flow = ControlFlow::Exit
-                    },
-                    WindowEvent::Resized(physical_size) => {
-                        context.resize(&window, *physical_size);
-                    }
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        context.resize(&window, **new_inner_size);
-                    }
-                    _ => {}
+            } if window_id == window.id() => match event {
+                WindowEvent::CloseRequested => {
+                    context.close(&window);
+                    elwt.exit();
+                },
+                WindowEvent::Resized(physical_size) => {
+                    context.resize(&window, *physical_size);
                 }
+                WindowEvent::RedrawRequested => {
+                    match context.render(&window) {
+                        Ok(_) => {},
+                        // Reconfigure the surface if lsot
+                        Err(wgpu::SurfaceError::Lost) => context.resize(&window, context.resources.size),
+                        // The system is out of memory, we should probably quit
+                        Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+                        // All other errors (Outdated, Timeout) should be resolved by the next frame
+                        Err(e) => eprintln!("{:?}", e),
+                    }
+                },
+                WindowEvent::ModifiersChanged(modifiers) => {
+                    context.update_modifiers(*modifiers);
+                },
+                _ => {
+                    context.input(&window, event);
+                },
             },
-            Event::RedrawRequested(window_id) if window_id == window.id() => {
+            Event::AboutToWait => {
                 match context.update(&window) {
-                    true => {
-                        *control_flow = ControlFlow::Exit
-                    },
+                    true => elwt.exit(),
                     false => (),
-                }
-                match context.render(&window) {
-                    Ok(_) => {},
-                    // Reconfigure the surface if lsot
-                    Err(wgpu::SurfaceError::Lost) => context.resize(&window, context.resources.size),
-                    // The system is out of memory, we should probably quit
-                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                    // All other errors (Outdated, Timeout) should be resolved by the next frame
-                    Err(e) => eprintln!("{:?}", e),
-                }
-            },
-            Event::MainEventsCleared => {
-                // RedrawRequested will only trigger once, unless we manually
-                // request it.
+                };
                 window.request_redraw();
             },
             _ => {}
@@ -130,6 +129,7 @@ pub struct Resources {
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
+    pub modifiers: Modifiers,
 }
 
 pub trait StateTrait {
@@ -153,8 +153,16 @@ impl Context {
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
-        let surface = unsafe { instance.create_surface(window) };
+        let instance_descriptor = wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            flags: InstanceFlags::DEBUG.union(InstanceFlags::VALIDATION),
+            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
+            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
+        };
+        let instance = wgpu::Instance::new(instance_descriptor);
+        // had to enable rwh_05 feature of winit 0.29.8 to get the right trait on window
+        // for the current version of wgpu
+        let surface = unsafe { instance.create_surface(window) }.unwrap();
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -178,12 +186,27 @@ impl Context {
             None, // Trace path
         ).await.unwrap();
 
+        let surface_caps = surface.get_capabilities(&adapter);
+        let present_mode = if surface_caps.present_modes.iter()
+            .any(|mode| *mode == wgpu::PresentMode::Fifo) {
+            wgpu::PresentMode:: Fifo
+        } else { surface_caps.present_modes[0] };
+        // Shader code in the tutorial (that this came from) assumes an sRGB surface texture. Using a different
+        // one will result in all the colors coming out darker. If you want to support non
+        // sRGB surfaces, you'll need to account for that when drawing to the frame.
+        let surface_format = surface_caps.formats.iter()
+            .copied()
+            .filter(|f| f.is_srgb())
+            .next()
+            .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface.get_supported_formats(&adapter)[0],
+            format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode,
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
         };
         surface.configure(&device, &config);
 
@@ -193,6 +216,7 @@ impl Context {
             queue,
             config,
             size,
+            modifiers: Default::default(),
         };
         let state = create_state(&mut resources);
 
@@ -201,7 +225,9 @@ impl Context {
             state,
         }
     }
-
+    fn update_modifiers(&mut self, new_modifiers: Modifiers) {
+        self.resources.modifiers = new_modifiers;
+    }
     fn resize(&mut self, window: &Window, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.resources.size = new_size;

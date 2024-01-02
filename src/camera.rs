@@ -1,7 +1,9 @@
+use winit::event::KeyEvent;
 use std::collections::HashSet;
 
-use cgmath::{Zero, Matrix4, Vector2, Vector3};
-use winit::event::{WindowEvent, VirtualKeyCode, ElementState, KeyboardInput};
+use cgmath::{Zero, Matrix4, Vector2};
+use winit::event::{WindowEvent, ElementState};
+use winit::keyboard::{PhysicalKey, KeyCode};
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -100,18 +102,20 @@ impl CameraObj for UICamera {
 
 pub struct CameraController {
     speed: f32,
-    inputs: HashSet<VirtualKeyCode>,
-    relevant_inputs: HashSet<VirtualKeyCode>,
+    inputs: HashSet<PhysicalKey>,
+    relevant_inputs: HashSet<PhysicalKey>,
     camera_lock: bool,
 }
 
 impl CameraController {
     pub fn new(speed: f32) -> Self {
-        use VirtualKeyCode::*;
+        use KeyCode::*;
+        let keys = vec![KeyW, KeyA, KeyS, KeyD, Space, ShiftLeft]
+            .into_iter().map(|code| PhysicalKey::Code(code)).collect();
         Self {
             speed,
             inputs: Default::default(),
-            relevant_inputs: vec![W, A, S, D, Space, LShift].into_iter().collect(),
+            relevant_inputs: keys,
             camera_lock: true,
         }
     }
@@ -119,22 +123,18 @@ impl CameraController {
     pub fn process_events(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::KeyboardInput {
-                input: KeyboardInput {
-                    state,
-                    virtual_keycode: Some(VirtualKeyCode::Y),
-                    ..
-                },
-                ..
+                event: KeyEvent {
+                    physical_key: PhysicalKey::Code(KeyCode::KeyY),
+                    state: ElementState::Pressed, ..
+                }, ..
             } => {
-                if *state == ElementState::Pressed {
-                    self.camera_lock = !self.camera_lock;
-                }
+                self.camera_lock = !self.camera_lock;
                 true
             },
             WindowEvent::KeyboardInput {
-                input: KeyboardInput {
-                    state,
-                    virtual_keycode: Some(key), ..
+                event: KeyEvent {
+                    physical_key: key,
+                    state, ..
                 }, ..
             } if self.relevant_inputs.contains(&key) => {
                 match state {
@@ -149,14 +149,14 @@ impl CameraController {
 
     pub fn update_camera(&self, delta_time: f32, camera: &mut Camera) {
         use cgmath::InnerSpace;
-        use VirtualKeyCode::{W, A, S, D};
+        use KeyCode::*;
 
         if !self.camera_lock {
             let mut dir = Vector2::zero();
-            if self.inputs.contains(&W) { dir -= Vector2::unit_y(); }
-            if self.inputs.contains(&S) { dir += Vector2::unit_y(); }
-            if self.inputs.contains(&D) { dir += Vector2::unit_x(); }
-            if self.inputs.contains(&A) { dir -= Vector2::unit_x(); }
+            if self.inputs.contains(&PhysicalKey::Code(KeyW)) { dir -= Vector2::unit_y(); }
+            if self.inputs.contains(&PhysicalKey::Code(KeyS)) { dir += Vector2::unit_y(); }
+            if self.inputs.contains(&PhysicalKey::Code(KeyD)) { dir += Vector2::unit_x(); }
+            if self.inputs.contains(&PhysicalKey::Code(KeyA)) { dir -= Vector2::unit_x(); }
             if dir != Vector2::zero() {
                 dir = dir.normalize();
                 let change = dir * self.speed * delta_time;
