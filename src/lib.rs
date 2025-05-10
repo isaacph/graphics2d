@@ -1,9 +1,7 @@
-pub mod camera;
-pub mod util;
-pub mod chatbox;
-pub mod window;
-pub mod textured;
-pub mod text;
-pub mod texture;
-pub mod grid;
+#[cfg(target_arch="wasm32")]
+use wasm_bindgen::prelude::*;
 
+pub mod win;
+pub mod client;
+pub mod simple;
+pub mod square;
