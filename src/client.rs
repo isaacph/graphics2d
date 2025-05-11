@@ -1,4 +1,4 @@
-use crate::{mat::{vec2, Mat4}, simple, square, win};
+use crate::{mat::{vec2, Mat4}, rrs::{RenderConstruct, RenderRecord, RenderRecordSystem}, simple, square::{self, SquareRenderParams}, win};
 
 pub fn run() {
     win::run(Client::init);
@@ -6,16 +6,21 @@ pub fn run() {
 
 pub struct Client {
     ortho: Mat4,
+    rrs: RenderRecordSystem,
     simple_render: simple::Simple,
     square_render: square::Square,
 }
 
 impl Client {
     pub fn init(rc: &mut win::RenderContext) -> Client {
+        let mut rrs = RenderRecordSystem::init();
+        let simple_render = rrs.add(simple::Simple::init(rc));
+        let square_render = rrs.add(square::Square::init(rc));
         return Client {
             ortho: Mat4::identity(),
-            simple_render: simple::Simple::init(rc),
-            square_render: square::Square::init(rc),
+            simple_render,
+            square_render,
+            rrs,
         };
     }
 }
@@ -41,6 +46,13 @@ impl win::Client for Client {
             label: Some("Render Encoder"),
         });
 
+        let mut rr = RenderRecord::new();
+        let matrix = self.ortho * Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 100.0), vec2(100.0, 100.0));
+        self.square_render.draw(rc, &mut rr, SquareRenderParams { matrix, range: 0..3 });
+        self.simple_render.draw(rc, &mut rr, ());
+        let matrix = self.ortho * Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        self.square_render.draw(rc, &mut rr, SquareRenderParams { matrix, range: 3..6 });
+
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -62,9 +74,7 @@ impl win::Client for Client {
                 timestamp_writes: None,
             });
 
-            self.simple_render.draw(rc, &mut rpass);
-            let mat = self.ortho * Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 100.0), vec2(100.0, 100.0));
-            self.square_render.draw(rc, &mut rpass, &mat);
+            self.rrs.render(rc, &mut rpass, &rr);
         }
 
         // submit will accept anything that implements IntoIter

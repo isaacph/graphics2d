@@ -1,19 +1,19 @@
 use bytemuck::Pod;
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod)]
+#[derive(Clone, Copy, Pod, Debug)]
 pub struct Mat4 {
     pub data: [[f32; 4]; 4],
 }
 unsafe impl bytemuck::Zeroable for Mat4 {}
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod)]
+#[derive(Clone, Copy, Pod, Debug)]
 pub struct Vec2 {
     pub data: [f32; 2],
 }
 #[repr(C)]
-#[derive(Clone, Copy, Pod)]
+#[derive(Clone, Copy, Pod, Debug)]
 pub struct DVec2 {
     pub x: f32,
     pub y: f32,
@@ -22,12 +22,12 @@ unsafe impl bytemuck::Zeroable for Vec2 {}
 unsafe impl bytemuck::Zeroable for DVec2 {}
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod)]
+#[derive(Clone, Copy, Pod, Debug)]
 pub struct Vec3 {
     pub data: [f32; 3],
 }
 #[repr(C)]
-#[derive(Clone, Copy, Pod)]
+#[derive(Clone, Copy, Pod, Debug)]
 pub struct DVec3 {
     pub x: f32,
     pub y: f32,
@@ -37,12 +37,12 @@ unsafe impl bytemuck::Zeroable for Vec3 {}
 unsafe impl bytemuck::Zeroable for DVec3 {}
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod)]
+#[derive(Clone, Copy, Pod, Debug)]
 pub struct Vec4 {
     pub data: [f32; 4],
 }
 #[repr(C)]
-#[derive(Clone, Copy, Pod)]
+#[derive(Clone, Copy, Pod, Debug)]
 pub struct DVec4 {
     pub x: f32,
     pub y: f32,

@@ -188,3 +188,5 @@ impl<C: Client, F: FnOnce(&mut RenderContext) -> C> App<C, F> {
             .resize(self.render_context.as_mut().unwrap(), size);
     }
 }
+
+

@@ -1,8 +1,38 @@
-use crate::win::RenderContext;
+use crate::{rrs::{RenderConstruct, RenderRecord, RenderRecordEntry, Renderer}, win::RenderContext};
 use std::{borrow::Cow, str};
 
 pub struct Simple {
+    renderer: Option<SimpleRenderer>,
+}
+
+pub struct SimpleRenderer {
     pipeline: wgpu::RenderPipeline,
+}
+
+impl Renderer for SimpleRenderer {
+    fn discriminant(&self) -> crate::rrs::RenderRecordEntryDiscriminants {
+        crate::rrs::RenderRecordEntryDiscriminants::Simple
+    }
+
+    fn pre_render(&mut self, _rc: &mut RenderContext, _: &crate::rrs::RenderRecord) {
+    }
+
+    fn render(&mut self, _rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, _entry: &crate::rrs::RenderRecordEntry) {
+        rpass.set_pipeline(&self.pipeline);
+        rpass.draw(0..3, 0..1);
+    }
+
+    fn post_render(&mut self, _rc: &mut RenderContext, _: &crate::rrs::RenderRecord) {
+    }
+}
+impl RenderConstruct<(), SimpleRenderer> for Simple {
+    fn init_renderer(&mut self) -> SimpleRenderer {
+        return self.renderer.take().expect("Cannot have multiuple renderers for a construct");
+    }
+
+    fn draw(&mut self, _rc: &mut RenderContext, record: &mut RenderRecord, _data: ()) {
+        record.entries.push(RenderRecordEntry::Simple);
+    }
 }
 
 impl Simple {
@@ -39,12 +69,9 @@ impl Simple {
             cache: None,
         });
         return Simple {
-            pipeline,
+            renderer: Some(SimpleRenderer {
+                pipeline,
+            })
         };
-    }
-
-    pub fn draw(&mut self, _rc: &mut RenderContext, rpass: &mut wgpu::RenderPass) {
-        rpass.set_pipeline(&self.pipeline);
-        rpass.draw(0..3, 0..1);
     }
 }

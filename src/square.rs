@@ -1,12 +1,65 @@
 use wgpu::util::DeviceExt;
 
-use crate::{mat::{vec2, Mat4}, win::RenderContext};
-use std::{borrow::Cow, num::NonZero, str};
+use crate::{mat::Mat4, rrs::{RenderConstruct, RenderRecord, RenderRecordEntry, Renderer}, win::RenderContext};
+use std::{borrow::Cow, num::NonZero, ops::Range, str};
 
-pub struct Square {
+pub struct Square(Option<SquareRenderer>);
+
+pub struct SquareRenderer {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     uniform_buf: wgpu::Buffer,
+    square_count: i32,
+}
+
+#[derive(Debug)]
+pub struct SquareRenderParams {
+    pub matrix: Mat4,
+    pub range: Range<u32>,
+}
+
+impl RenderConstruct<SquareRenderParams, SquareRenderer> for Square {
+    fn init_renderer(&mut self) -> SquareRenderer {
+        self.0.take().expect("Cannot instantiate multiple renderers for a construct")
+    }
+
+    fn draw(&mut self, _rc: &mut RenderContext, record: &mut RenderRecord, data: SquareRenderParams) {
+        record.entries.push(RenderRecordEntry::Square(data));
+    }
+}
+impl Renderer for SquareRenderer {
+    fn discriminant(&self) -> crate::rrs::RenderRecordEntryDiscriminants {
+        crate::rrs::RenderRecordEntryDiscriminants::Square
+    }
+
+    fn pre_render(&mut self, _rc: &mut RenderContext, record: &RenderRecord) {
+        let mut square_count = 0;
+        for entry in &record.entries {
+            match entry {
+                RenderRecordEntry::Square(_) => square_count += 1,
+                _ => (),
+            }
+        }
+        self.square_count = square_count;
+    }
+
+    fn render(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, entry: &RenderRecordEntry) {
+        let SquareRenderParams {
+            matrix,
+            range,
+        } = match entry {
+            RenderRecordEntry::Square(p) => p,
+            _ => panic!("Failed to call correct renderer!"),
+        };
+        rc.queue.write_buffer(&self.uniform_buf, 0, matrix.as_ref());
+        rpass.set_pipeline(&self.pipeline);
+        rpass.set_bind_group(0, &self.bind_group, &[]);
+        rpass.draw(range.clone(), 0..1);
+    }
+
+    fn post_render(&mut self, _rc: &mut RenderContext, _: &RenderRecord) {
+        self.square_count = 0;
+    }
 }
 
 impl Square {
@@ -69,17 +122,11 @@ impl Square {
             multiview: None,
             cache: None,
         });
-        return Square {
+        return Square(Some(SquareRenderer {
             pipeline,
             bind_group,
             uniform_buf,
-        };
-    }
-
-    pub fn draw(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, matrix: &Mat4) {
-        rc.queue.write_buffer(&self.uniform_buf, 0, matrix.as_ref());
-        rpass.set_pipeline(&self.pipeline);
-        rpass.set_bind_group(0, &self.bind_group, &[]);
-        rpass.draw(0..6, 0..1);
+            square_count: 0,
+        }));
     }
 }
