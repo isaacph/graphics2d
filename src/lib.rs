@@ -5,3 +5,4 @@ pub mod win;
 pub mod client;
 pub mod simple;
 pub mod square;
+pub mod mat;

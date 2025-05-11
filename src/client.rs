@@ -1,10 +1,11 @@
-use crate::{simple, square, win};
+use crate::{mat::{vec2, Mat4}, simple, square, win};
 
 pub fn run() {
     win::run(Client::init);
 }
 
 pub struct Client {
+    ortho: Mat4,
     simple_render: simple::Simple,
     square_render: square::Square,
 }
@@ -12,14 +13,25 @@ pub struct Client {
 impl Client {
     pub fn init(rc: &mut win::RenderContext) -> Client {
         return Client {
+            ortho: Mat4::identity(),
             simple_render: simple::Simple::init(rc),
             square_render: square::Square::init(rc),
         };
     }
 }
 
+fn regulate(f: f32, bound: f32) -> f32 {
+    let x = f.rem_euclid(bound * 2.0);
+    if x > bound {
+        return 2.0 * bound - x;
+    } else {
+        return x;
+    }
+}
+
 impl win::Client for Client {
     fn draw(&mut self, rc: &mut win::RenderContext) {
+        let time = rc.time();
         let output = match rc.surface.get_current_texture() {
             Ok(x) => x,
             Err(_err) => return,
@@ -51,7 +63,8 @@ impl win::Client for Client {
             });
 
             self.simple_render.draw(rc, &mut rpass);
-            self.square_render.draw(rc, &mut rpass);
+            let mat = self.ortho * Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 100.0), vec2(100.0, 100.0));
+            self.square_render.draw(rc, &mut rpass, &mat);
         }
 
         // submit will accept anything that implements IntoIter
@@ -59,6 +72,23 @@ impl win::Client for Client {
         output.present();
     }
 
-    fn resize(&mut self, _rc: &mut win::RenderContext, _size: winit::dpi::PhysicalSize<u32>) {
+    fn resize(&mut self, _rc: &mut win::RenderContext, size: winit::dpi::PhysicalSize<u32>) {
+        self.ortho = Mat4::ortho(size);
+    }
+
+    fn handle_event(&mut self, rc: &mut win::RenderContext, event: &winit::event::WindowEvent) -> win::EventState {
+        match event {
+            winit::event::WindowEvent::KeyboardInput { device_id: _, event, is_synthetic: _, } => {
+                match event.logical_key {
+                    winit::keyboard::Key::Named(named_key) => match named_key {
+                        winit::keyboard::NamedKey::Escape => rc.exit(),
+                        _ => (),
+                    },
+                    _ => (),
+                };
+                return win::EventState::Consumed;
+            },
+            _ => win::EventState::Skipped,
+        }
     }
 }

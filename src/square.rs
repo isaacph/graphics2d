@@ -1,58 +1,51 @@
 use wgpu::util::DeviceExt;
 
-use crate::win::RenderContext;
-use std::{borrow::Cow, str};
+use crate::{mat::{vec2, Mat4}, win::RenderContext};
+use std::{borrow::Cow, num::NonZero, str};
 
 pub struct Square {
     pipeline: wgpu::RenderPipeline,
-    uniform_bind_group: wgpu::BindGroup,
-    uniform_buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    uniform_buf: wgpu::Buffer,
 }
 
 impl Square {
     pub fn init(rc: &mut RenderContext) -> Square {
+        let bind_group_layout = rc.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(NonZero::new(std::mem::size_of::<Mat4>() as u64).unwrap()),
+                },
+                count: None,
+            }],
+        });
+        let uniform_buf = rc.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: Mat4::identity().as_ref(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+        });
+        let bind_group = rc.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buf.as_entire_binding(),
+            }],
+        });
+
         let shader = rc.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(
                 Cow::from(str::from_utf8(include_bytes!(env!("SQUARE_SHADER"))).unwrap())),
         });
-        let uniform_buffer = rc.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: &[],
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let uniform_bind_group_layout = rc.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let uniform_bind_group = rc.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &uniform_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &uniform_buffer,
-                        offset: 0,
-                        size: todo!(),
-                    }),
-                },
-            ],
-        });
         let pipeline_layout = rc.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&uniform_bind_group_layout],
+            bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
         let pipeline = rc.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -78,16 +71,15 @@ impl Square {
         });
         return Square {
             pipeline,
-            uniform_bind_group,
-            uniform_buffer,
+            bind_group,
+            uniform_buf,
         };
     }
 
-    pub fn draw(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass) {
-        rc.queue.write_buffer(&self.uniform_buffer, 0, todo!());
-
+    pub fn draw(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, matrix: &Mat4) {
+        rc.queue.write_buffer(&self.uniform_buf, 0, matrix.as_ref());
         rpass.set_pipeline(&self.pipeline);
-        rpass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        rpass.set_bind_group(0, &self.bind_group, &[]);
         rpass.draw(0..6, 0..1);
     }
 }
