@@ -52,14 +52,6 @@ pub struct DVec4 {
 unsafe impl bytemuck::Zeroable for Vec4 {}
 unsafe impl bytemuck::Zeroable for DVec4 {}
 
-pub trait MultiplyMat4 {
-    fn mul(&self, other: &Mat4) -> Mat4;
-}
-
-pub trait MultiplyVec4 {
-    fn mul(&self, other: &Vec4) -> Vec4;
-}
-
 impl Mat4 {
     pub fn identity() -> Self {
         Self {

@@ -7,3 +7,4 @@ pub mod simple;
 pub mod square;
 pub mod mat;
 pub mod rrs;
+pub mod depend;

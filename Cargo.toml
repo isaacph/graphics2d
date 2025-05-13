@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 bytemuck = { version = "1.23.0", features = [ "must_cast", "derive" ] }
-nalgebra = "0.33.2"
 pollster = "0.4.0"
 strum = { version = "0.27.1", features = [ "strum_macros", "derive"] }
 wgpu = "25.0.0"

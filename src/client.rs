@@ -1,19 +1,22 @@
-use crate::{mat::{vec2, Mat4}, rrs::{RenderConstruct, RenderRecord, RenderRecordSystem}, simple, square::{self, SquareRenderParams}, win};
+use crate::{mat::{vec2, Mat4}, rrs::{r#abstract::RenderConstruct, Record, RecordSystem, Settings}, simple, square::{self, SquareRenderParams}, win};
 
 pub fn run() {
     win::run(Client::init);
 }
 
+pub mod render {
+}
+
 pub struct Client {
     ortho: Mat4,
-    rrs: RenderRecordSystem,
+    rrs: RecordSystem,
     simple_render: simple::Simple,
     square_render: square::Square,
 }
 
 impl Client {
     pub fn init(rc: &mut win::RenderContext) -> Client {
-        let mut rrs = RenderRecordSystem::init();
+        let mut rrs = RecordSystem::init();
         let simple_render = rrs.add(simple::Simple::init(rc));
         let square_render = rrs.add(square::Square::init(rc));
         return Client {
@@ -46,13 +49,24 @@ impl win::Client for Client {
             label: Some("Render Encoder"),
         });
 
-        let mut rr = RenderRecord::new();
+        let mut rr = Record::new();
         let matrix = self.ortho * Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 100.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, SquareRenderParams { matrix, range: 0..3 });
+        let matrix = self.ortho * Mat4::box2d(vec2(500.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        self.square_render.draw(rc, &mut rr, SquareRenderParams { matrix, range: 3..6 });
+        let matrix = self.ortho * Mat4::box2d(vec2(300.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        self.square_render.draw(rc, &mut rr, SquareRenderParams { matrix, range: 3..6 });
         self.simple_render.draw(rc, &mut rr, ());
         let matrix = self.ortho * Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, SquareRenderParams { matrix, range: 3..6 });
+        let matrix = self.ortho * Mat4::box2d(vec2(200.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        self.square_render.draw(rc, &mut rr, SquareRenderParams { matrix, range: 3..6 });
+        let matrix = self.ortho * Mat4::box2d(vec2(400.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        self.square_render.draw(rc, &mut rr, SquareRenderParams { matrix, range: 3..6 });
 
+        let settings = Settings {
+            projection: self.ortho,
+        };
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -74,10 +88,9 @@ impl win::Client for Client {
                 timestamp_writes: None,
             });
 
-            self.rrs.render(rc, &mut rpass, &rr);
+            self.rrs.render(rc, &mut rpass, &rr, &settings);
         }
 
-        // submit will accept anything that implements IntoIter
         rc.queue.submit(std::iter::once(encoder.finish()));
         output.present();
     }

@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use crate::{mat::Mat4, rrs::{RenderConstruct, RenderRecord, RenderRecordEntry, Renderer}, win::RenderContext};
+use crate::{mat::Mat4, rrs::{r#abstract::RenderConstruct, Entry, EntryDiscriminants, Record, Settings}, win::RenderContext};
 use std::{borrow::Cow, num::NonZero, ops::Range, str};
 
 pub struct Square(Option<SquareRenderer>);
@@ -9,7 +9,9 @@ pub struct SquareRenderer {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     uniform_buf: wgpu::Buffer,
-    square_count: i32,
+    instance_buf: wgpu::Buffer,
+    instance_buf_count: usize,
+    current_buf: u32,
 }
 
 #[derive(Debug)]
@@ -18,48 +20,22 @@ pub struct SquareRenderParams {
     pub range: Range<u32>,
 }
 
-impl RenderConstruct<SquareRenderParams, SquareRenderer> for Square {
-    fn init_renderer(&mut self) -> SquareRenderer {
-        self.0.take().expect("Cannot instantiate multiple renderers for a construct")
-    }
-
-    fn draw(&mut self, _rc: &mut RenderContext, record: &mut RenderRecord, data: SquareRenderParams) {
-        record.entries.push(RenderRecordEntry::Square(data));
-    }
+#[repr(C, packed)]
+struct InstanceBuffer {
+    matrix: Mat4,
 }
-impl Renderer for SquareRenderer {
-    fn discriminant(&self) -> crate::rrs::RenderRecordEntryDiscriminants {
-        crate::rrs::RenderRecordEntryDiscriminants::Square
-    }
 
-    fn pre_render(&mut self, _rc: &mut RenderContext, record: &RenderRecord) {
-        let mut square_count = 0;
-        for entry in &record.entries {
-            match entry {
-                RenderRecordEntry::Square(_) => square_count += 1,
-                _ => (),
-            }
-        }
-        self.square_count = square_count;
-    }
-
-    fn render(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, entry: &RenderRecordEntry) {
-        let SquareRenderParams {
-            matrix,
-            range,
-        } = match entry {
-            RenderRecordEntry::Square(p) => p,
-            _ => panic!("Failed to call correct renderer!"),
-        };
-        rc.queue.write_buffer(&self.uniform_buf, 0, matrix.as_ref());
-        rpass.set_pipeline(&self.pipeline);
-        rpass.set_bind_group(0, &self.bind_group, &[]);
-        rpass.draw(range.clone(), 0..1);
-    }
-
-    fn post_render(&mut self, _rc: &mut RenderContext, _: &RenderRecord) {
-        self.square_count = 0;
-    }
+impl InstanceBuffer {
+    pub const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: size_of::<Self>() as wgpu::BufferAddress,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &wgpu::vertex_attr_array![
+            0 => Float32x4,
+            1 => Float32x4,
+            2 => Float32x4,
+            3 => Float32x4,
+        ],
+    };
 }
 
 impl Square {
@@ -91,6 +67,13 @@ impl Square {
             }],
         });
 
+        let instance_buf = rc.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: &[],
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
+        });
+        let instance_buf_count = 0;
+
         let shader = rc.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(
@@ -108,7 +91,7 @@ impl Square {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[],
+                buffers: &[InstanceBuffer::LAYOUT],
             },
             primitive: Default::default(),
             depth_stencil: None,
@@ -126,7 +109,75 @@ impl Square {
             pipeline,
             bind_group,
             uniform_buf,
-            square_count: 0,
+            instance_buf_count,
+            instance_buf,
+            current_buf: 0,
         }));
     }
 }
+
+impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Square {
+    type Renderer = SquareRenderer;
+    type DrawParam = SquareRenderParams;
+
+    fn init_renderer(&mut self) -> SquareRenderer {
+        self.0.take().expect("Cannot instantiate multiple renderers for a construct")
+    }
+
+    fn draw(&mut self, _rc: &mut RenderContext, record: &mut Record, data: SquareRenderParams) {
+        record.entries.push(Entry::Square(data));
+    }
+}
+
+impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for SquareRenderer {
+    type Settings = Settings;
+
+    fn discriminant(&self) -> EntryDiscriminants {
+        EntryDiscriminants::Square
+    }
+
+    fn pre_render(&mut self, rc: &mut RenderContext, record: &Record, _: &Settings) {
+        let mut new_count: usize = 0;
+        for entry in &record.entries {
+            match entry {
+                Entry::Square(_) => new_count += 1,
+                _ => (),
+            }
+        }
+        if new_count > self.instance_buf_count {
+            self.instance_buf = rc.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: &vec![0; new_count * size_of::<InstanceBuffer>()].into_boxed_slice(),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
+            });
+            self.instance_buf_count = new_count;
+        }
+        self.current_buf = 0;
+    }
+
+    fn render(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, entry: &Entry, _: &Settings) {
+        let SquareRenderParams {
+            matrix,
+            range,
+        } = match entry {
+            Entry::Square(p) => p,
+            _ => panic!("Failed to call correct renderer!"),
+        };
+
+        let buf_index = self.current_buf;
+        self.current_buf += 1;
+        let offset: u64 = (size_of::<InstanceBuffer>() * (buf_index as usize)).try_into().unwrap();
+        rc.queue.write_buffer(&self.instance_buf, offset, matrix.as_ref());
+
+        rc.queue.write_buffer(&self.uniform_buf, 0, Mat4::identity().as_ref());
+        rpass.set_pipeline(&self.pipeline);
+        rpass.set_bind_group(0, &self.bind_group, &[]);
+        rpass.set_vertex_buffer(0, self.instance_buf.slice(..));
+        rpass.draw(range.clone(), buf_index..buf_index+1);
+    }
+
+    fn post_render(&mut self, _rc: &mut RenderContext, _: &Record, _: &Settings) {
+        self.current_buf = 0;
+    }
+}
+
