@@ -7,8 +7,8 @@ use crate::{mat::Mat4, rrs::r#abstract::RenderRecordSystem};
 #[strum_discriminants(derive(Hash))]
 pub enum Entry {
     Simple,
-    Square(crate::square::SquareRenderParams),
-    Depend(crate::depend::DependRenderParams),
+    Square(crate::square::RenderParams),
+    Textured(crate::textured::RenderParams),
 }
 
 pub struct Settings {

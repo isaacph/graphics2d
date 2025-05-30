@@ -1,17 +1,16 @@
 use std::{borrow::Cow, str::from_utf8};
 
-use crate::{rrs::{r#abstract::{RenderConstruct, Renderer}, Entry, EntryDiscriminants, Record, Settings}, win::RenderContext};
+use crate::{rrs::{r#abstract, Entry, EntryDiscriminants, Record, Settings}, win::RenderContext};
 
-
-pub struct Simple {
-    renderer: Option<SimpleRenderer>,
+pub struct Construct {
+    renderer: Option<Renderer>,
 }
 
-pub struct SimpleRenderer {
+pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
 }
 
-impl Renderer<Entry, EntryDiscriminants> for SimpleRenderer {
+impl r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
     type Settings = Settings;
 
     fn discriminant(&self) -> EntryDiscriminants {
@@ -29,11 +28,11 @@ impl Renderer<Entry, EntryDiscriminants> for SimpleRenderer {
     fn post_render(&mut self, _rc: &mut RenderContext, _: &Record, _: &Settings) {
     }
 }
-impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Simple {
+impl r#abstract::RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
     type DrawParam = ();
-    type Renderer = SimpleRenderer;
+    type Renderer = Renderer;
 
-    fn init_renderer(&mut self) -> SimpleRenderer {
+    fn init_renderer(&mut self) -> Renderer {
         return self.renderer.take().expect("Cannot have multiuple renderers for a construct");
     }
 
@@ -42,8 +41,8 @@ impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Simple {
     }
 }
 
-impl Simple {
-    pub fn init(rc: &mut RenderContext) -> Simple {
+impl Construct {
+    pub fn init(rc: &mut RenderContext) -> Construct {
         let shader = rc.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(
@@ -75,8 +74,8 @@ impl Simple {
             multiview: None,
             cache: None,
         });
-        return Simple {
-            renderer: Some(SimpleRenderer {
+        return Construct {
+            renderer: Some(Renderer {
                 pipeline,
             })
         };

@@ -1,7 +1,7 @@
 use wgpu::util::DeviceExt;
 
 use crate::{mat::Mat4, rrs::{r#abstract::RenderConstruct, Entry, EntryDiscriminants, Record, Settings}, win::RenderContext};
-use std::{borrow::Cow, num::NonZero, ops::Range, str};
+use std::{borrow::Cow, num::NonZero, str};
 
 pub struct Construct(Option<Renderer>);
 
@@ -17,7 +17,6 @@ pub struct Renderer {
 #[derive(Debug)]
 pub struct RenderParams {
     pub matrix: Mat4,
-    pub range: Range<u32>,
 }
 
 #[repr(C, packed)]
@@ -125,7 +124,7 @@ impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
     }
 
     fn draw(&mut self, _rc: &mut RenderContext, record: &mut Record, data: RenderParams) {
-        record.entries.push(Entry::Square(data));
+        record.entries.push(Entry::Textured(data));
     }
 }
 
@@ -133,14 +132,14 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
     type Settings = Settings;
 
     fn discriminant(&self) -> EntryDiscriminants {
-        EntryDiscriminants::Square
+        EntryDiscriminants::Textured
     }
 
     fn pre_render(&mut self, rc: &mut RenderContext, record: &Record, _: &Settings) {
         let mut new_count: usize = 0;
         for entry in &record.entries {
             match entry {
-                Entry::Square(_) => new_count += 1,
+                Entry::Textured(_) => new_count += 1,
                 _ => (),
             }
         }
@@ -158,9 +157,8 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
     fn render(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, entry: &Entry, _: &Settings) {
         let RenderParams {
             matrix,
-            range,
         } = match entry {
-            Entry::Square(p) => p,
+            Entry::Textured(p) => p,
             _ => panic!("Failed to call correct renderer!"),
         };
 
@@ -173,11 +171,12 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
         rpass.set_pipeline(&self.pipeline);
         rpass.set_bind_group(0, &self.bind_group, &[]);
         rpass.set_vertex_buffer(0, self.instance_buf.slice(..));
-        rpass.draw(range.clone(), buf_index..buf_index+1);
+        rpass.draw(0..6, buf_index..buf_index+1);
     }
 
     fn post_render(&mut self, _rc: &mut RenderContext, _: &Record, _: &Settings) {
         self.current_buf = 0;
     }
 }
+
 
