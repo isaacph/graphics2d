@@ -1,7 +1,11 @@
 use crate::{
     mat::Mat4,
-    rrs::{r#abstract::RenderConstruct, Entry, EntryDiscriminants, Record, Settings},
+    rrs::{
+        r#abstract::RenderConstruct, Entry, EntryDiscriminants, Record, RecordSystem, Settings,
+        Update,
+    },
     texture::assert_packed,
+    util::indirect_handles::{Handle, HandleTracker, WeakHandle},
     win::RenderContext,
 };
 use image;
@@ -10,6 +14,9 @@ use wgpu::{self, util::DeviceExt};
 
 pub struct Construct(Option<Renderer>);
 
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
+pub struct Texture;
+
 pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
@@ -17,11 +24,24 @@ pub struct Renderer {
     instance_buf: wgpu::Buffer,
     instance_buf_count: usize,
     current_buf: u32,
+    textures: HandleTracker<Texture, TextureInfo>,
 }
 
 #[derive(Debug)]
 pub struct RenderParams {
     pub matrix: Mat4,
+    texture_id: WeakHandle<Texture>,
+}
+
+#[derive(Debug)]
+pub struct UpdateArgs(TextureInfo);
+#[derive(Debug)]
+pub struct UpdateReturn(Handle<Texture>);
+
+#[derive(Debug)]
+struct TextureInfo {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
 }
 
 #[repr(C, packed)]
@@ -131,6 +151,7 @@ impl Construct {
             instance_buf_count,
             instance_buf,
             current_buf: 0,
+            textures: Default::default(),
         }));
     }
 }
@@ -138,6 +159,7 @@ impl Construct {
 impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
     type Renderer = Renderer;
     type DrawParam = RenderParams;
+    type Update = Update;
 
     fn init_renderer(&mut self) -> Renderer {
         self.0
@@ -152,6 +174,7 @@ impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
 
 impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
     type Settings = Settings;
+    type Update = Update;
 
     fn discriminant(&self) -> EntryDiscriminants {
         EntryDiscriminants::Textured
@@ -185,10 +208,12 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
         entry: &Entry,
         _: &Settings,
     ) {
-        let RenderParams { matrix } = match entry {
+        let RenderParams { matrix, texture_id } = match entry {
             Entry::Textured(p) => p,
             _ => panic!("Failed to call correct renderer!"),
         };
+        let texture = self.textures.get(texture_id).expect("TODO: add default textures when dropped textures");
+        // goal accomplished: get texture into the render function lol
 
         let buf_index = self.current_buf;
         self.current_buf += 1;
@@ -209,42 +234,61 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
     fn post_render(&mut self, _rc: &mut RenderContext, _: &Record, _: &Settings) {
         self.current_buf = 0;
     }
+
+    fn load(&mut self, _rc: &mut RenderContext, update: Self::Update) -> Self::Update {
+        match update {
+            Update::Args(crate::rrs::UpdateArgs::Textured(UpdateArgs(texture_info))) => {
+                let handle = self.textures.put(texture_info);
+                return Update::Return(crate::rrs::UpdateReturn::Textured(UpdateReturn(handle)));
+            }
+            _ => panic!("Invalid update for texture renderer: {:?}", update),
+        }
+    }
 }
 
-pub struct Texture {
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
+impl Construct {
+    pub fn init_texture(
+        &mut self,
+        rc: &mut RenderContext,
+        rrs: &mut RecordSystem,
+        png: &[u8],
+    ) -> Result<Handle<Texture>, image::ImageError> {
+        let cursor = std::io::Cursor::new(png);
+        let img = image::ImageReader::new(cursor).decode()?;
+        let img_rgba8 = img.into_rgba8();
+        let samples = img_rgba8.into_flat_samples();
+        assert_packed(&samples);
+        let slice = samples.as_slice();
 
-pub fn init_texture(rc: &RenderContext, png: &[u8]) -> Result<Texture, image::ImageError> {
-    let cursor = std::io::Cursor::new(png);
-    let img = image::ImageReader::new(cursor).decode()?;
-    let img_rgba8 = img.into_rgba8();
-    let samples = img_rgba8.into_flat_samples();
-    assert_packed(&samples);
-    let slice = samples.as_slice();
-
-    let texture = rc.device.create_texture_with_data(
-        &rc.queue,
-        &wgpu::TextureDescriptor {
-            label: Some("image-rs texture"),
-            size: wgpu::Extent3d {
-                width: samples.layout.width,
-                height: samples.layout.height,
-                depth_or_array_layers: 1,
+        let texture = rc.device.create_texture_with_data(
+            &rc.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("image-rs texture"),
+                size: wgpu::Extent3d {
+                    width: samples.layout.width,
+                    height: samples.layout.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING, // create_texture_with_data implicitly
+                // adds COPY_DST though
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING, // create_texture_with_data implicitly
-            // adds COPY_DST though
-            view_formats: &[],
-        },
-        wgpu::util::TextureDataOrder::MipMajor,
-        slice,
-    );
-    let view = texture.create_view(&Default::default());
+            wgpu::util::TextureDataOrder::MipMajor,
+            slice,
+        );
+        let view = texture.create_view(&Default::default());
+        let texture_info = TextureInfo { texture, view };
 
-    return Ok(Texture { texture, view });
+        // TODO: insane boilerplate to store the result in the renderer
+        // maybe I should replace this with reference counted refcell?
+        let args = Update::Args(crate::rrs::UpdateArgs::Textured(UpdateArgs(texture_info)));
+        match rrs.update(rc, &EntryDiscriminants::Textured, args).expect("Texture update returned None") {
+            Update::Return(crate::rrs::UpdateReturn::Textured(update_return)) => Ok(update_return.0),
+            other_update => panic!("Invalid update returned for texture renderer: {:?}", other_update),
+        }
+    }
 }

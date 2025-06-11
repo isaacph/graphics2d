@@ -9,3 +9,4 @@ pub mod mat;
 pub mod rrs;
 pub mod textured;
 pub mod texture;
+pub mod util;
