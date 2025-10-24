@@ -1,6 +1,6 @@
+use crate::{rrs::{self, Entry, EntryDiscriminants, Record, RenderConstruct, Settings, Update}, win::RenderContext};
+use crate::mat::Mat4;
 use wgpu::util::DeviceExt;
-
-use crate::{mat::Mat4, rrs::{r#abstract::RenderConstruct, Entry, EntryDiscriminants, Record, Settings, Update}, win::RenderContext};
 use std::{borrow::Cow, num::NonZero, ops::Range, str};
 
 pub struct Construct(Option<Renderer>);
@@ -116,10 +116,9 @@ impl Construct {
     }
 }
 
-impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
+impl RenderConstruct for Construct {
     type Renderer = Renderer;
     type DrawParam = RenderParams;
-    type Update = Update;
 
     fn init_renderer(&mut self) -> Renderer {
         self.0.take().expect("Cannot instantiate multiple renderers for a construct")
@@ -130,10 +129,7 @@ impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
     }
 }
 
-impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
-    type Settings = Settings;
-    type Update = Update;
-
+impl rrs::Renderer for Renderer {
     fn discriminant(&self) -> EntryDiscriminants {
         EntryDiscriminants::Square
     }
@@ -183,7 +179,7 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
         rc.queue.write_buffer(&self.uniform_buf, 0, settings.projection.as_ref().into());
     }
 
-    fn load(&mut self, _: &mut RenderContext, _: Self::Update) -> Self::Update {
+    fn load<'a>(&mut self, _: &mut RenderContext, _: Update<'a>) -> Update<'a> {
         panic!("Update invalid for square renderer");
     }
 }

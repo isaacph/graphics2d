@@ -1,5 +1,5 @@
 use crate::{
-    mat::{vec2, Mat4}, rrs::{r#abstract::RenderConstruct, Record, RecordSystem, Settings}, simple, square, texture::init_texture, textured, util::indirect_handles::WeakHandle, win
+    mat::{vec2, Mat4}, rrs::{RenderConstruct, Record, RenderRecordSystem, Settings}, simple, square, texture::init_texture, textured, util::indirect_handles::WeakHandle, win
 };
 
 pub fn run() {
@@ -11,7 +11,7 @@ pub mod render {
 
 pub struct Client {
     ortho: Mat4,
-    rrs: RecordSystem,
+    rrs: RenderRecordSystem,
     simple_render: simple::Construct,
     square_render: square::Construct,
     textured_render: textured::Construct,
@@ -20,13 +20,13 @@ pub struct Client {
 
 impl Client {
     pub fn init(rc: &mut win::RenderContext) -> Client {
-        let mut rrs = RecordSystem::init();
+        let mut rrs = RenderRecordSystem::init();
         let simple_render = rrs.add(simple::Construct::init(rc));
         let square_render = rrs.add(square::Construct::init(rc));
         let mut textured_render = rrs.add(textured::Construct::init(rc));
         let texture_base = init_texture(rc, include_bytes!(env!("SAMPLE_IMAGE")), wgpu::FilterMode::Nearest)
             .expect("Could not load texture");
-        let texture = textured_render.init_texture(rc, &mut rrs, texture_base).make_weak();
+        let texture = textured_render.init_texture(rc, &mut rrs, &texture_base).make_weak();
         return Client {
             ortho: Mat4::identity(),
             rrs,
@@ -73,6 +73,8 @@ impl win::Client for Client {
         self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 3..6 });
         let matrix = Mat4::box2d(vec2(400.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 3..6 });
+        let matrix = Mat4::box2d(vec2(600.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 0..6 });
         let matrix = Mat4::box2d(vec2(400.0 + regulate(time, 2.0) * 500.0, 400.0), vec2(100.0, 100.0));
         self.textured_render.draw(rc, &mut rr, textured::RenderParams { matrix, texture: self.texture });
 

@@ -1,7 +1,7 @@
-use r#abstract::RenderRecord;
 use strum::EnumDiscriminants;
-
-use crate::{mat::Mat4, rrs::r#abstract::RenderRecordSystem};
+use std::collections::HashMap;
+use crate::win::RenderContext;
+use crate::mat::Mat4;
 
 #[derive(Debug, EnumDiscriminants)]
 #[strum_discriminants(derive(Hash))]
@@ -16,100 +16,85 @@ pub struct Settings {
 }
 
 #[derive(Debug)]
-pub enum Update {
+pub enum Update<'a> {
     Empty,
-    Args(UpdateArgs),
+    Args(UpdateArgs<'a>),
     Return(UpdateReturn),
 }
 #[derive(Debug)]
-pub enum UpdateArgs {
-    Textured(crate::textured::UpdateArgs),
+pub enum UpdateArgs<'a> {
+    Textured(crate::textured::UpdateArgs<'a>),
 }
 #[derive(Debug)]
 pub enum UpdateReturn {
     Textured(crate::textured::UpdateReturn),
 }
 
-pub type RecordSystem = RenderRecordSystem<Entry, EntryDiscriminants, Settings, Update>;
-pub type Record = RenderRecord<Entry>;
+pub trait RenderConstruct {
+    type Renderer: Renderer;
+    type DrawParam;
 
-pub mod r#abstract {
-    use std::collections::HashMap;
+    fn init_renderer(&mut self) -> Self::Renderer;
+    fn draw(&mut self, rc: &mut RenderContext, record: &mut Record, data: Self::DrawParam);
+}
 
-    use crate::win::RenderContext;
+pub trait Renderer {
+    fn discriminant(&self) -> EntryDiscriminants;
+    fn pre_render(&mut self, rc: &mut RenderContext, record: &Record, settings: &Settings);
+    fn render(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, entry: &Entry, settings: &Settings);
+    fn post_render(&mut self, rc: &mut RenderContext, record: &Record, settings: &Settings);
 
-    pub trait RenderConstruct<E, D, S> where E: 'static, D: std::hash::Hash + Eq + From<&'static E> {
-        type Update;
-        type Renderer: Renderer<E, D, Settings = S, Update = Self::Update>;
-        type DrawParam;
+    fn load<'a>(&mut self, rc: &mut RenderContext, update: Update<'a>) -> Update<'a>;
+}
 
-        fn init_renderer(&mut self) -> Self::Renderer;
-        fn draw(&mut self, rc: &mut RenderContext, record: &mut RenderRecord<E>, data: Self::DrawParam);
-    }
+pub struct RenderRecordSystem {
+    pub renderers: Vec<Box<dyn Renderer>>,
+    pub renderer_mapping: HashMap<EntryDiscriminants, usize>,
+}
 
-    pub trait Renderer<E, D> where E: 'static, D: std::hash::Hash + Eq + From<&'static E> {
-        type Settings;
-        type Update;
+pub struct Record {
+    pub entries: Vec<Entry>,
+}
 
-        fn discriminant(&self) -> D;
-        fn pre_render(&mut self, rc: &mut RenderContext, record: &RenderRecord<E>, settings: &Self::Settings);
-        fn render(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass, entry: &E, settings: &Self::Settings);
-        fn post_render(&mut self, rc: &mut RenderContext, record: &RenderRecord<E>, settings: &Self::Settings);
-
-        fn load(&mut self, rc: &mut RenderContext, update: Self::Update) -> Self::Update;
-    }
-
-    pub struct RenderRecordSystem<E, D, S, U> where E: 'static, D: std::hash::Hash + Eq + From<&'static E> {
-        pub renderers: Vec<Box<dyn Renderer<E, D, Settings = S, Update = U>>>,
-        pub renderer_mapping: HashMap<D, usize>,
-    }
-
-    pub struct RenderRecord<E> {
-        pub entries: Vec<E>,
-    }
-
-    impl<E> RenderRecord<E> {
-        pub fn new() -> Self {
-            Self {
-                entries: vec![],
-            }
-        }
-    }
-
-    impl<E, D, S, U> RenderRecordSystem<E, D, S, U> where D: std::hash::Hash + Eq + for<'a> From<&'a E> {
-        pub fn init() -> Self {
-            Self {
-                renderers: vec![],
-                renderer_mapping: HashMap::new(),
-            }
-        }
-        pub fn add<C>(&mut self, mut construct: C) -> C
-                where C: RenderConstruct<E, D, S, Update = U>, C::Renderer: 'static {
-            let r = construct.init_renderer();
-            self.renderer_mapping.insert(r.discriminant(), self.renderers.len());
-            let b: Box<dyn Renderer<E, D, Settings = S, Update = U>> = Box::new(r);
-            self.renderers.push(b);
-            return construct;
-        }
-        pub fn update(&mut self, rc: &mut RenderContext, target: &D, update: U) -> Option<U> {
-            return self.renderer_mapping.get(target)
-                .map(|index| &mut self.renderers[*index])
-                .map(|renderer| renderer.load(rc, update));
-        }
-        pub fn render(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass<'_>, rr: &RenderRecord<E>, settings: &S) {
-            for renderer in &mut self.renderers {
-                renderer.pre_render(rc, rr, settings);
-            }
-            for entry in &rr.entries {
-                self.renderer_mapping.get_mut(&entry.into())
-                    .map(|index| &mut self.renderers[*index])
-                    .map(|renderer| renderer.render(rc, rpass, entry, settings));
-            }
-            for renderer in &mut self.renderers {
-                renderer.post_render(rc, rr, settings);
-            }
+impl Record {
+    pub fn new() -> Self {
+        Self {
+            entries: vec![],
         }
     }
 }
 
-
+impl RenderRecordSystem {
+    pub fn init() -> Self {
+        Self {
+            renderers: vec![],
+            renderer_mapping: HashMap::new(),
+        }
+    }
+    pub fn add<C>(&mut self, mut construct: C) -> C
+            where C: RenderConstruct, C::Renderer: 'static {
+        let r = construct.init_renderer();
+        self.renderer_mapping.insert(r.discriminant(), self.renderers.len());
+        let b: Box<dyn Renderer> = Box::new(r);
+        self.renderers.push(b);
+        return construct;
+    }
+    pub fn update<'a>(&mut self, rc: &mut RenderContext, target: &EntryDiscriminants, update: Update<'a>) -> Option<Update<'a>> {
+        return self.renderer_mapping.get(target)
+            .map(|index| &mut self.renderers[*index])
+            .map(|renderer| renderer.load(rc, update));
+    }
+    pub fn render(&mut self, rc: &mut RenderContext, rpass: &mut wgpu::RenderPass<'_>, rr: &Record, settings: &Settings) {
+        for renderer in &mut self.renderers {
+            renderer.pre_render(rc, rr, settings);
+        }
+        for entry in &rr.entries {
+            self.renderer_mapping.get_mut(&entry.into())
+                .map(|index| &mut self.renderers[*index])
+                .map(|renderer| renderer.render(rc, rpass, entry, settings));
+        }
+        for renderer in &mut self.renderers {
+            renderer.post_render(rc, rr, settings);
+        }
+    }
+}

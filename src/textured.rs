@@ -1,9 +1,6 @@
 use crate::{
     mat::Mat4,
-    rrs::{
-        r#abstract::RenderConstruct, Entry, EntryDiscriminants, Record, RecordSystem, Settings,
-        Update,
-    },
+    rrs::{self, Entry, EntryDiscriminants, Record, RenderConstruct, RenderRecordSystem, Settings, Update},
     texture::TextureInfo,
     util::indirect_handles::{Handle, HandleTracker, WeakHandle},
     win::RenderContext,
@@ -33,16 +30,13 @@ pub struct RenderParams {
 }
 
 #[derive(Debug)]
-pub struct UpdateArgs(TextureInfo);
+pub struct UpdateArgs<'a>(&'a TextureInfo);
 #[derive(Debug)]
 pub struct UpdateReturn(Handle<Texture>);
 
 #[derive(Debug)]
 struct TextureBindGroup {
     bind_group: wgpu::BindGroup,
-    // we need to keep this here due to borrowing constraints :(
-    // at some point we can refactor and allow multiple render constructs to share one of these
-    texture_info: TextureInfo,
 }
 
 #[repr(C, packed)]
@@ -162,10 +156,9 @@ impl Construct {
     }
 }
 
-impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
+impl RenderConstruct for Construct {
     type Renderer = Renderer;
     type DrawParam = RenderParams;
-    type Update = Update;
 
     fn init_renderer(&mut self) -> Renderer {
         self.0
@@ -178,10 +171,7 @@ impl RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
     }
 }
 
-impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
-    type Settings = Settings;
-    type Update = Update;
-
+impl rrs::Renderer for Renderer {
     fn discriminant(&self) -> EntryDiscriminants {
         EntryDiscriminants::Textured
     }
@@ -218,7 +208,7 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
             Entry::Textured(p) => p,
             _ => panic!("Failed to call correct renderer!"),
         };
-        let TextureBindGroup { bind_group, texture_info: _, } = self.bind_groups.get(texture)
+        let TextureBindGroup { bind_group } = self.bind_groups.get(texture)
             .expect("TODO: add default textures when dropped textures");
 
         let buf_index = self.current_buf;
@@ -239,11 +229,11 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
         rc.queue.write_buffer(&self.uniform_buf, 0, settings.projection.as_ref().into());
     }
 
-    fn load(&mut self, rc: &mut RenderContext, update: Self::Update) -> Self::Update {
+    fn load<'a>(&mut self, rc: &mut RenderContext, update: Update<'a>) -> Update<'a> {
         match update {
             Update::Args(crate::rrs::UpdateArgs::Textured(UpdateArgs(
                 TextureInfo {
-                    texture,
+                    texture: _,
                     view,
                     sampler,
                 }
@@ -263,11 +253,6 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
                     }],
                 });
                 let bind_group = TextureBindGroup {
-                    texture_info: TextureInfo {
-                        texture,
-                        view,
-                        sampler,
-                    },
                     bind_group,
                 };
                 let handle = self.bind_groups.put(bind_group);
@@ -279,11 +264,11 @@ impl crate::rrs::r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
 }
 
 impl Construct {
-    pub fn init_texture(
+    pub fn init_texture<'a>(
         &mut self,
         rc: &mut RenderContext,
-        rrs: &mut RecordSystem,
-        texture_info: TextureInfo,
+        rrs: &mut RenderRecordSystem,
+        texture_info: &'a TextureInfo,
     ) -> Handle<Texture> {
         // TODO: insane boilerplate to store the result in the renderer
         // maybe I should replace this with reference counted refcell?

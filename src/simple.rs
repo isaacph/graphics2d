@@ -1,6 +1,5 @@
 use std::{borrow::Cow, str::from_utf8};
-
-use crate::{rrs::{r#abstract, Entry, EntryDiscriminants, Record, Settings, Update}, win::RenderContext};
+use crate::{rrs::{self, Entry, EntryDiscriminants, Record, RenderConstruct, Settings, Update}, win::RenderContext};
 
 pub struct Construct {
     renderer: Option<Renderer>,
@@ -10,10 +9,7 @@ pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
 }
 
-impl r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
-    type Settings = Settings;
-    type Update = Update;
-
+impl rrs::Renderer for Renderer {
     fn discriminant(&self) -> EntryDiscriminants {
         EntryDiscriminants::Simple
     }
@@ -29,14 +25,13 @@ impl r#abstract::Renderer<Entry, EntryDiscriminants> for Renderer {
     fn post_render(&mut self, _rc: &mut RenderContext, _: &Record, _: &Settings) {
     }
 
-    fn load(&mut self, _: &mut RenderContext, _: Self::Update) -> Self::Update {
-        panic!("Update is probably a mistake for simple renderer");
+    fn load<'a>(&mut self, _: &mut RenderContext, _: Update<'a>) -> Update<'a> {
+        panic!("Update is a mistake for simple renderer");
     }
 }
-impl r#abstract::RenderConstruct<Entry, EntryDiscriminants, Settings> for Construct {
+impl RenderConstruct for Construct {
     type DrawParam = ();
     type Renderer = Renderer;
-    type Update = Update;
 
     fn init_renderer(&mut self) -> Renderer {
         return self.renderer.take().expect("Cannot have multiuple renderers for a construct");
