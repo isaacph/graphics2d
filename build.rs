@@ -9,5 +9,7 @@ fn add_res<'a>(var: &'a str, path: &'a str) {
 fn main() {
     add_res("SIMPLE_SHADER", "src/simple_shader.wgsl");
     add_res("SQUARE_SHADER", "src/square_shader.wgsl");
+    add_res("TEXTURE_SHADER", "src/texture_shader.wgsl");
+    add_res("SAMPLE_IMAGE", "res/image.png");
 }
 

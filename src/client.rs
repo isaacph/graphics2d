@@ -1,4 +1,6 @@
-use crate::{mat::{vec2, Mat4}, rrs::{r#abstract::RenderConstruct, Record, RecordSystem, Settings}, simple, square, textured, win};
+use crate::{
+    mat::{vec2, Mat4}, rrs::{r#abstract::RenderConstruct, Record, RecordSystem, Settings}, simple, square, texture::init_texture, textured, util::indirect_handles::WeakHandle, win
+};
 
 pub fn run() {
     win::run(Client::init);
@@ -13,6 +15,7 @@ pub struct Client {
     simple_render: simple::Construct,
     square_render: square::Construct,
     textured_render: textured::Construct,
+    texture: WeakHandle<textured::Texture>,
 }
 
 impl Client {
@@ -20,13 +23,17 @@ impl Client {
         let mut rrs = RecordSystem::init();
         let simple_render = rrs.add(simple::Construct::init(rc));
         let square_render = rrs.add(square::Construct::init(rc));
-        let textured_render = rrs.add(textured::Construct::init(rc));
+        let mut textured_render = rrs.add(textured::Construct::init(rc));
+        let texture_base = init_texture(rc, include_bytes!(env!("SAMPLE_IMAGE")), wgpu::FilterMode::Nearest)
+            .expect("Could not load texture");
+        let texture = textured_render.init_texture(rc, &mut rrs, texture_base).make_weak();
         return Client {
             ortho: Mat4::identity(),
+            rrs,
             simple_render,
             square_render,
             textured_render,
-            rrs,
+            texture,
         };
     }
 }
@@ -53,21 +60,21 @@ impl win::Client for Client {
         });
 
         let mut rr = Record::new();
-        let matrix = self.ortho * Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 100.0), vec2(100.0, 100.0));
+        let matrix = Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 100.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 0..3 });
-        let matrix = self.ortho * Mat4::box2d(vec2(500.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        let matrix = Mat4::box2d(vec2(500.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 3..6 });
-        let matrix = self.ortho * Mat4::box2d(vec2(300.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        let matrix = Mat4::box2d(vec2(300.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 3..6 });
         self.simple_render.draw(rc, &mut rr, ());
-        let matrix = self.ortho * Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        let matrix = Mat4::box2d(vec2(100.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 3..6 });
-        let matrix = self.ortho * Mat4::box2d(vec2(200.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        let matrix = Mat4::box2d(vec2(200.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 3..6 });
-        let matrix = self.ortho * Mat4::box2d(vec2(400.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
+        let matrix = Mat4::box2d(vec2(400.0 + regulate(time, 2.0) * 500.0, 300.0), vec2(100.0, 100.0));
         self.square_render.draw(rc, &mut rr, square::RenderParams { matrix, range: 3..6 });
-        let matrix = self.ortho * Mat4::box2d(vec2(400.0 + regulate(time, 2.0) * 500.0, 400.0), vec2(100.0, 100.0));
-        self.textured_render.draw(rc, &mut rr, textured::RenderParams { matrix });
+        let matrix = Mat4::box2d(vec2(400.0 + regulate(time, 2.0) * 500.0, 400.0), vec2(100.0, 100.0));
+        self.textured_render.draw(rc, &mut rr, textured::RenderParams { matrix, texture: self.texture });
 
         let settings = Settings {
             projection: self.ortho,

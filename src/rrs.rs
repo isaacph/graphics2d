@@ -40,7 +40,7 @@ pub mod r#abstract {
 
     pub trait RenderConstruct<E, D, S> where E: 'static, D: std::hash::Hash + Eq + From<&'static E> {
         type Update;
-        type Renderer: Renderer<E, D, Settings = S, Update = Update>;
+        type Renderer: Renderer<E, D, Settings = S, Update = Self::Update>;
         type DrawParam;
 
         fn init_renderer(&mut self) -> Self::Renderer;
@@ -84,7 +84,7 @@ pub mod r#abstract {
             }
         }
         pub fn add<C>(&mut self, mut construct: C) -> C
-                where C: RenderConstruct<E, D, S>, C::Renderer: 'static {
+                where C: RenderConstruct<E, D, S, Update = U>, C::Renderer: 'static {
             let r = construct.init_renderer();
             self.renderer_mapping.insert(r.discriminant(), self.renderers.len());
             let b: Box<dyn Renderer<E, D, Settings = S, Update = U>> = Box::new(r);

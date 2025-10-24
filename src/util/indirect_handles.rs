@@ -2,9 +2,9 @@ use std::{collections::HashMap, rc::{Rc, Weak}};
 
 // ID should be a unit type (serving as a name for this type of handle)
 #[derive(Debug, Clone)]
-pub struct Handle<ID: Default + Clone>(BaseID, Rc<ID>);
-#[derive(Debug, Clone)]
-pub struct WeakHandle<ID: Default + Clone>(BaseID, ID);
+pub struct Handle<ID: Default + Clone + Copy>(BaseID, Rc<ID>);
+#[derive(Debug, Clone, Copy)]
+pub struct WeakHandle<ID: Default + Clone + Copy>(BaseID, ID);
 pub type HandleTrackerObj<ID> = Weak<ID>;
 
 pub struct HandleTracker<ID, T> where ID: Eq + Default {
@@ -23,13 +23,13 @@ struct HandleEntry<ID, T> {
     tracker: HandleTrackerObj<ID>,
 }
 
-impl<ID: Default + Clone> Handle<ID> {
+impl<ID: Default + Clone + Copy> Handle<ID> {
     pub fn make_weak(&self) -> WeakHandle<ID> {
         WeakHandle(self.0, Default::default())
     }
 }
 
-impl<ID, T> HandleTracker<ID, T> where ID: Eq + Default + Clone {
+impl<ID, T> HandleTracker<ID, T> where ID: Eq + Default + Clone + Copy {
     pub fn new() -> HandleTracker<ID, T> {
         Self {
             handles: HashMap::new(),
@@ -73,19 +73,19 @@ impl<ID, T> HandleTracker<ID, T> where ID: Eq + Default + Clone {
     }
 }
 
-impl<ID, T> Default for HandleTracker<ID, T> where ID: Eq + Default + Clone {
+impl<ID, T> Default for HandleTracker<ID, T> where ID: Eq + Default + Clone + Copy {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<ID: Eq + Default + Clone> From<Handle<ID>> for WeakHandle<ID> {
+impl<ID: Eq + Default + Clone + Copy> From<Handle<ID>> for WeakHandle<ID> {
     fn from(Handle(id, _): Handle<ID>) -> Self {
         Self(id, Default::default())
     }
 }
 
-impl<ID: Eq + Default + Clone> From<&Handle<ID>> for WeakHandle<ID> {
+impl<ID: Eq + Default + Clone + Copy> From<&Handle<ID>> for WeakHandle<ID> {
     fn from(Handle(id, _): &Handle<ID>) -> Self {
         Self(*id, Default::default())
     }
